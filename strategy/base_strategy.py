@@ -1,39 +1,99 @@
-# @Author: cola5173
-# @Time: 2025/12/7 00:56
 """
 策略基类
-所有选股策略都需要继承此类并实现 select 方法
+所有交易策略继承此类，实现 execute_logic 方法
 """
-from abc import ABC, abstractmethod
-from typing import Optional, Set
+import json
+import os
+
+from vnpy_ctastrategy import CtaTemplate, StopOrder, BarGenerator, ArrayManager
+from vnpy.trader.object import BarData, TickData, TradeData, OrderData
+
+from indicator.indicators import IndicatorCalculator
+from config import settings
 
 
-class BaseStrategy(ABC):
-    """策略基类，用于选股"""
+class BaseStrategy(CtaTemplate):
+    """vnpy CTA 策略基类，内置指标桥接和 A 股交易规则"""
 
-    def __init__(self):
-        """
-        初始化策略
-        """
+    author = "stock_quant"
 
-    @abstractmethod
-    def select(self,
-               trade_date: Optional[str] = None) -> Set[str]:
-        """
-        批量选股方法，根据指定日期筛选符合条件的股票
-        :param trade_date: 选股日期，格式：'YYYY-MM-DD'，如果不传则使用最近的交易日
-        :return: 集合，包含符合条件的股票代码，例如 {'000001', '600000'}
-        """
-        raise NotImplementedError("子类必须实现 select 方法")
+    def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
+        super().__init__(cta_engine, strategy_name, vt_symbol, setting)
+        self.bg = BarGenerator(self.on_bar)
+        self.am = ArrayManager(size=200)
+        self.indicator = None
+        self.buy_date = None
+        self.prev_close = 0.0
+        self._extra_info = self._load_extra_info()
 
-    @abstractmethod
-    def select_one(self,
-                   stock_code: str,
-                   trade_date: Optional[str] = None) -> bool:
-        """
-        单个股票选股方法，根据指定日期筛选符合条件的股票
-        :param stock_code: 股票代码，格式：sh.600000 或 sz.000001
-        :param trade_date: 选股日期，格式：'YYYY-MM-DD'，如果不传则使用最近的交易日
-        :return: 是否符合条件
-        """
-        raise NotImplementedError("子类必须实现 select_one 方法")
+    def _load_extra_info(self) -> dict:
+        path = os.path.join(settings.DATA_DIR, "stock_extra_info.json")
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return json.load(f)
+        return {}
+
+    def _get_limit_rate(self) -> float:
+        symbol = self.vt_symbol.split(".")[0]
+        info = self._extra_info.get(symbol, {})
+        if info.get("is_st", False):
+            return 0.05
+        if symbol.startswith("30") or symbol.startswith("68"):
+            return 0.20
+        return 0.10
+
+    def on_init(self):
+        self.write_log("策略初始化")
+        self.load_bar(200)
+
+    def on_start(self):
+        self.write_log("策略启动")
+
+    def on_stop(self):
+        self.write_log("策略停止")
+
+    def on_bar(self, bar: BarData):
+        self.am.update_bar(bar)
+        if not self.am.inited:
+            self.prev_close = bar.close_price
+            return
+
+        self.indicator = IndicatorCalculator(self.am)
+
+        # 涨跌停判断
+        limit = self._get_limit_rate()
+        pct = (bar.close_price - self.prev_close) / self.prev_close if self.prev_close > 0 else 0
+        at_upper_limit = pct >= limit - 0.001
+        at_lower_limit = pct <= -limit + 0.001
+
+        # T+1：当日买入不可卖出
+        can_sell = self.buy_date is not None and bar.datetime.date() > self.buy_date
+
+        self.execute_logic(bar, can_sell, at_upper_limit, at_lower_limit)
+        self.prev_close = bar.close_price
+
+    def execute_logic(self, bar: BarData, can_sell: bool,
+                      at_upper_limit: bool, at_lower_limit: bool):
+        raise NotImplementedError
+
+    def buy_stock(self, price: float, volume: float):
+        """A 股买入：最小 100 股"""
+        volume = int(volume // 100) * 100
+        if volume > 0:
+            self.buy(price, volume)
+
+    def sell_stock(self, price: float, volume: float):
+        """A 股卖出：最小 100 股"""
+        volume = int(volume // 100) * 100
+        if volume > 0:
+            self.sell(price, volume)
+
+    def on_trade(self, trade: TradeData):
+        if trade.direction.value == "多":
+            self.buy_date = trade.datetime.date()
+
+    def on_order(self, order: OrderData):
+        pass
+
+    def on_stop_order(self, stop_order: StopOrder):
+        pass

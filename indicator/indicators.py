@@ -5,7 +5,6 @@
 import pandas as pd
 import numpy as np
 from model.kline_constants import KLineConstants
-from fetcher.baostock_fetcher import BaoStockDataFetcher
 
 
 def calculate_KDJ(df: pd.DataFrame) -> dict:
@@ -171,12 +170,40 @@ def calculate_amplitude(df: pd.DataFrame) -> dict:
     amplitude = (high - low) / low * 100
     return {'amplitude': round(amplitude.iloc[-1], 2)}
 
-if __name__ == "__main__":
-    df = BaoStockDataFetcher()._load_stock_data('002153', end_date='2025-12-06')
-    # 方式1：传入 DataFrame（推荐）
-    kdj = calculate_KDJ(df)
-    print(kdj)
-    print("-" * 100)
-    zx_trend = calculate_zx_trend(df)
-    print(zx_trend)
-    print("-" * 100)
+
+class IndicatorCalculator:
+    """
+    桥接层：将 vnpy ArrayManager 的 numpy 数组转为 DataFrame，
+    复用现有 pandas 向量化指标计算函数
+    """
+
+    def __init__(self, am):
+        self.am = am
+        self._df = self._am_to_dataframe()
+
+    def _am_to_dataframe(self) -> pd.DataFrame:
+        return pd.DataFrame({
+            KLineConstants.OPEN: self.am.open_array,
+            KLineConstants.HIGH: self.am.high_array,
+            KLineConstants.LOW: self.am.low_array,
+            KLineConstants.CLOSE: self.am.close_array,
+            KLineConstants.VOLUME: self.am.volume_array,
+        })
+
+    def kdj(self, n=9, m1=3, m2=3) -> dict:
+        return calculate_KDJ(self._df)
+
+    def zx_trend(self) -> dict:
+        result = calculate_zx_trend(self._df)
+        return {
+            "zx_short": result["zx_short"],
+            "zx_long": result["zx_long"],
+            "white": result["zx_trend_white"],
+            "yellow": result["zx_trend_yellow"],
+            "bbi": result["bbi"],
+            "didi": result["dd"],
+        }
+
+    def amplitude(self) -> float:
+        result = calculate_amplitude(self._df)
+        return result["amplitude"]

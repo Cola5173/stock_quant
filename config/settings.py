@@ -5,3 +5,28 @@ DATA_DIR = "data"
 STOCK_CODE_FILE = "stock_code.csv"
 STRATEGY_DIR = "strategy"
 REFERENCE_STOCK = "sh.000001"
+
+# vnpy 数据库配置
+VNPY_DB_PATH = "data/vnpy_db.sqlite"
+
+# 回测默认参数
+BACKTEST_CONFIG = {
+    "capital": 100000,
+    "rate": 0.001,
+    "slippage": 0.01,
+    "size": 1,
+    "pricetick": 0.01,
+    "interval": "daily",
+}
+
+# A 股费用明细（后续精细化时替换 rate 为自定义费用计算函数）
+FEE_CONFIG = {
+    "commission_rate": 0.0003,
+    "stamp_tax_rate": 0.001,
+    "transfer_fee_rate": 0.00001,
+    "min_commission": 5.0,
+}
+
+# 可视化配置
+REPORT_DIR = "reports"
+PLOT_STYLE = "seaborn-v0_8-darkgrid"

@@ -94,3 +94,6 @@ Desktop.ini
 .iflycode/
 *.bak
 *.backup
+
+
+docs/

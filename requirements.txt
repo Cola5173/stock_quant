@@ -5,3 +5,6 @@ tushare>=1.2.89
 akshare>=1.11.0
 baostock>=0.8.8
 openpyxl>=3.0.0
+vnpy==3.9.0
+vnpy-ctastrategy>=1.0.0
+matplotlib>=3.7.0
