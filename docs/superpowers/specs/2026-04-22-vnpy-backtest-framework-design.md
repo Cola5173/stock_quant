@@ -46,7 +46,7 @@ stock_quant/
 功能：
 - 读取 `data/` 目录下的 CSV 文件（BaoStock 格式）
 - 转换为 vnpy 的 `BarData` 对象列表
-- 写入 vnpy 的 SQLite 数据库，供回测引擎读取
+- 通过 vnpy 的 `database_manager`（`vnpy.trader.database.get_database()`）写入数据库，供回测引擎读取
 
 字段映射：
 
@@ -65,6 +65,14 @@ stock_quant/
 - `sz.000001` → `Exchange.SZSE` + `symbol="000001"`
 
 支持批量导入和增量更新（只导入新数据）。K 线周期以日线为主，后续可扩展分钟线。
+
+**数据校验：**
+- 检查 OHLC 合理性（high >= low, high >= open/close, low <= open/close）
+- 检查交易日连续性，记录缺失日期
+- 过滤 volume=0 的停牌日数据
+
+**复权处理：**
+- 保持现有 BaoStock 前复权数据（`adjustflag="2"`），不做二次处理
 
 ### 2. 指标层重构（indicator/indicators.py）
 
@@ -101,11 +109,11 @@ class BaseStrategy(CtaTemplate):
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
         self.bg = BarGenerator(self.on_bar)
-        self.am = ArrayManager(size=120)
+        self.am = ArrayManager(size=200)          # 需覆盖 MA(114) 等长周期指标
         self.indicator = None
 
     def on_init(self):
-        self.load_bar(120)
+        self.load_bar(200)
 
     def on_bar(self, bar: BarData):
         self.am.update_bar(bar)
@@ -140,6 +148,14 @@ class B1Strategy(BaseStrategy):
 - `BarGenerator` 支持从日线合成周线/月线，天然支持多周期
 - 同一策略代码，回测和未来实盘零改动
 
+### 3.1 A 股交易规则处理
+
+回测引擎需处理以下 A 股特有规则：
+- **T+1 限制**：当日买入次日才能卖出，在 `BaseStrategy` 中维护买入日期，`on_bar` 中检查持仓天数
+- **涨跌停限制**：涨停时无法买入、跌停时无法卖出，通过判断当日涨跌幅是否触及 ±10%（创业板/科创板 ±20%）来过滤
+- **最小交易单位**：1 手 = 100 股，下单量向下取整到 100 的整数倍
+- **ST 股票过滤**：利用现有数据中的 `isST` 字段，默认跳过 ST 股票
+
 ### 4. 回测模块（backtest/）
 
 **engine.py** — 回测引擎封装：
@@ -158,13 +174,14 @@ class BacktestRunner:
         )
         self.engine.add_strategy(strategy_class, setting or {})
 
-    def run(self) -> dict:
+    def run(self):
         self.engine.load_data()
         self.engine.run_backtesting()
-        return self.engine.calculate_result()
+        self.engine.calculate_result()            # 必须先调用，生成逐日盈亏
+        return self.engine.calculate_statistics()  # 再调用，生成统计指标
 
-    def optimize(self, param_ranges: dict) -> list:
-        return self.engine.run_optimization(param_ranges)
+    def optimize(self, setting: OptimizationSetting) -> list:
+        return self.engine.run_optimization(setting)
 ```
 
 **reporter.py** — 回测报告 + 可视化：
@@ -198,11 +215,18 @@ VNPY_DB_PATH = "data/vnpy_db.sqlite"
 # 新增：回测默认参数
 BACKTEST_CONFIG = {
     "capital": 100000,
-    "rate": 0.0003,
+    "rate": 0.0003,           # 佣金万三（买卖双向）
     "slippage": 0.01,
     "size": 100,
     "pricetick": 0.01,
     "interval": "daily",
+}
+
+# A 股费用明细（用于自定义费用计算，后续精细化）
+FEE_CONFIG = {
+    "commission_rate": 0.0003,    # 佣金万三（买卖双向）
+    "stamp_tax_rate": 0.001,      # 印花税千一（仅卖出）
+    "transfer_fee_rate": 0.00001, # 过户费十万分之一（仅沪市）
 }
 
 # 新增：可视化配置
@@ -238,6 +262,7 @@ python main.py scan --strategy b1 --start 2024-01-01 --end 2025-06-30
 | indicator/ | 重构 | 用 ArrayManager 重写 |
 | strategy/ | 重构 | 继承 CtaTemplate |
 | backtest/ | 新增 | 回测引擎 + 可视化报告 |
+| model/ | 保留 | 重构后由 adapter 和 indicator 替代字段访问，保留作为数据源字段映射参考 |
 | utils/ | 保留 | 不动 |
 | main.py | 重构 | argparse 子命令入口 |
 
@@ -247,4 +272,38 @@ python main.py scan --strategy b1 --start 2024-01-01 --end 2025-06-30
 vnpy>=3.0.0
 vnpy-ctastrategy
 matplotlib>=3.5.0
+```
+
+## 完整调用流程示例
+
+```python
+# main.py backtest 子命令的执行流程
+from backtest.engine import BacktestRunner
+from backtest.reporter import BacktestReporter
+from strategy.b1 import B1Strategy
+
+# 1. 创建回测运行器
+runner = BacktestRunner(
+    strategy_class=B1Strategy,
+    vt_symbol="600000.SSE",
+    start=datetime(2024, 1, 1),
+    end=datetime(2025, 6, 30),
+    setting={"kdj_n": 9, "kdj_j_threshold": 13}
+)
+
+# 2. 运行回测（内部流程）
+#    → engine.load_data() 从 vnpy 数据库加载数据（adapter 已导入）
+#    → engine.run_backtesting()
+#      → 逐 bar 调用 B1Strategy.on_bar()
+#        → am.update_bar(bar)
+#        → IndicatorCalculator(am).kdj() / zx_trend()
+#        → self.buy() / self.sell()
+#    → engine.calculate_result() 生成逐日盈亏 DataFrame
+#    → engine.calculate_statistics() 生成统计指标 dict
+stats = runner.run()
+
+# 3. 生成报告和可视化
+reporter = BacktestReporter(runner.engine)
+reporter.summary()  # 打印统计指标
+reporter.plot(save_path="reports/b1_600000.png")  # 保存图表
 ```
