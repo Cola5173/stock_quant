@@ -1,14 +1,15 @@
-# 股票选股系统
+# A 股量化交易回测系统
 
-这是一个基于Python的股票选股系统，支持自定义策略进行选股。
+基于 vnpy 框架的 A 股量化交易回测平台，支持策略代码化、回测分析和参数优化。
 
 ## 功能特点
 
-- 📊 支持多种数据源（Tushare、AKShare）
-- 🎯 策略化设计，易于编写自定义选股策略
-- 📈 内置示例策略（技术指标策略）
-- 💾 支持结果导出（CSV、Excel）
-- 🚀 支持进度显示和批量处理
+- 📊 数据源：BaoStock（免费、稳定）
+- 🎯 策略框架：基于 vnpy CTA 策略模板，回测与实盘代码统一
+- 📈 技术指标：KDJ、知行趋势、振幅等，支持自定义扩展
+- 💾 回测引擎：vnpy BacktestingEngine，内置 A 股交易规则（T+1、涨跌停、最小交易单位）
+- 📉 可视化：净值曲线、回撤曲线、每日盈亏图表
+- 🚀 参数优化：网格搜索最优参数组合
 
 ## 安装依赖
 
@@ -18,145 +19,190 @@ pip install -r requirements.txt
 
 ## 使用方法
 
-### 1. 使用AKShare数据源（推荐，免费）
+### 1. 下载数据并导入 vnpy 数据库
 
 ```bash
-python main.py --data-source akshare --max-stocks 50
+python main.py data --start 2024-01-01 --end 2025-12-31
 ```
 
-### 2. 使用Tushare数据源（需要token）
+### 2. 单股回测
 
 ```bash
-python main.py --data-source tushare --tushare-token YOUR_TOKEN --max-stocks 50
+python main.py backtest --strategy b1 --symbol 600000 --start 2024-01-01 --end 2025-06-30
 ```
 
-### 3. 更多参数
+### 3. 参数优化
 
 ```bash
-python main.py \
-    --data-source akshare \
-    --max-stocks 100 \
-    --min-score 10.0 \
-    --output 选股结果.xlsx \
-    --output-format excel
-```
-
-## 编写自定义策略
-
-### 步骤1：创建策略文件
-
-创建 `my_strategy.py` 文件：
-
-```python
-from strategy import Strategy
-import pandas as pd
-
-class MyCustomStrategy(Strategy):
-    """我的自定义策略"""
-    
-    def __init__(self, data_fetcher):
-        super().__init__("我的策略", data_fetcher)
-        # 设置策略参数
-        self.set_parameter('min_pe', 10)
-        self.set_parameter('max_pe', 50)
-    
-    def calculate_score(self, stock_code: str, stock_data: pd.DataFrame) -> float:
-        """计算股票得分"""
-        if stock_data.empty:
-            return 0.0
-        
-        # 在这里编写你的评分逻辑
-        score = 0.0
-        
-        # 示例：基于涨幅评分
-        if len(stock_data) >= 20:
-            price_change = (stock_data.iloc[-1]['close'] - stock_data.iloc[-20]['close']) / stock_data.iloc[-20]['close']
-            score = price_change * 100
-        
-        return score
-    
-    def filter_stock(self, stock_code: str, stock_data: pd.DataFrame) -> bool:
-        """过滤股票"""
-        if stock_data.empty:
-            return False
-        
-        # 在这里编写你的筛选条件
-        # 示例：只选择最近20日涨幅为正的股票
-        if len(stock_data) >= 20:
-            price_change = (stock_data.iloc[-1]['close'] - stock_data.iloc[-20]['close']) / stock_data.iloc[-20]['close']
-            return price_change > 0
-        
-        return False
-```
-
-### 步骤2：在主程序中使用
-
-修改 `main.py`：
-
-```python
-from strategy.my_strategy import MyCustomStrategy
-
-# 替换示例策略
-strategy = MyCustomStrategy(data_fetcher)
+python main.py optimize --strategy b1 --symbol 600000 --start 2024-01-01 --end 2025-06-30
 ```
 
 ## 项目结构
 
 ```
-stock/
-├── data_fetcher.py      # 数据获取模块
-├── strategy.py          # 策略基类和示例策略
-├── stock_selector.py    # 选股执行模块
-├── main.py             # 主程序入口
-├── requirements.txt    # 依赖包
-└── README.md          # 说明文档
+stock_quant/
+├── config/                  # 配置模块
+│   └── settings.py          # 回测参数、费用配置、可视化配置
+├── data/                    # 股票 CSV 数据
+├── fetcher/                 # 数据获取模块
+│   ├── fetcher.py           # 数据获取基类
+│   └── baostock_fetcher.py  # BaoStock 数据源实现
+├── adapter/                 # 数据适配层
+│   └── vnpy_adapter.py      # CSV → vnpy BarData 转换
+├── indicator/               # 技术指标计算
+│   └── indicators.py        # KDJ、知行趋势、振幅 + IndicatorCalculator 桥接层
+├── strategy/                # 交易策略
+│   ├── base_strategy.py     # 策略基类（继承 vnpy CtaTemplate）
+│   └── b1.py                # B1 策略示例（KDJ + 知行趋势）
+├── backtest/                # 回测模块
+│   ├── engine.py            # 回测引擎封装
+│   └── reporter.py          # 回测报告 + 可视化
+├── reports/                 # 回测报告输出目录
+├── utils/                   # 工具函数
+├── main.py                  # 主程序入口
+└── requirements.txt         # 依赖包
+```
+
+## 编写自定义策略
+
+### 步骤 1：创建策略文件
+
+在 `strategy/` 目录下创建新策略文件，例如 `my_strategy.py`：
+
+```python
+from vnpy.trader.object import BarData
+from strategy.base_strategy import BaseStrategy
+
+
+class MyStrategy(BaseStrategy):
+    """我的自定义策略"""
+
+    author = "your_name"
+
+    # 策略参数
+    fast_window = 10
+    slow_window = 20
+
+    parameters = ["fast_window", "slow_window"]
+    variables = []
+
+    def execute_logic(self, bar: BarData, can_sell: bool,
+                      at_upper_limit: bool, at_lower_limit: bool):
+        """策略逻辑"""
+        # 获取指标
+        kdj = self.indicator.kdj()
+        zx = self.indicator.zx_trend()
+
+        # 买入条件
+        if self.pos == 0 and not at_upper_limit:
+            # 在这里编写买入条件
+            if kdj["J"] < 20:
+                self.buy_stock(bar.close_price, 100)
+
+        # 卖出条件
+        if self.pos > 0 and can_sell and not at_lower_limit:
+            # 在这里编写卖出条件
+            if kdj["J"] > 80:
+                self.sell_stock(bar.close_price, abs(self.pos))
+```
+
+### 步骤 2：在 main.py 中注册策略
+
+修改 `main.py` 中的 `strategy_map`：
+
+```python
+strategy_map = {
+    "b1": B1Strategy,
+    "my": MyStrategy,  # 新增
+}
+```
+
+### 步骤 3：运行回测
+
+```bash
+python main.py backtest --strategy my --symbol 600000 --start 2024-01-01 --end 2025-06-30
 ```
 
 ## 策略接口说明
 
-### Strategy 基类
+### BaseStrategy 基类
 
-所有策略都需要继承 `Strategy` 类并实现以下方法：
+所有策略继承 `BaseStrategy`，需实现 `execute_logic` 方法：
 
-1. **calculate_score(stock_code, stock_data) -> float**
-   - 计算股票得分
-   - 返回分数（越高越好）
+```python
+def execute_logic(self, bar: BarData, can_sell: bool,
+                  at_upper_limit: bool, at_lower_limit: bool):
+    """
+    策略逻辑
+    :param bar: 当前 K 线数据
+    :param can_sell: 是否可以卖出（T+1 限制）
+    :param at_upper_limit: 是否涨停
+    :param at_lower_limit: 是否跌停
+    """
+    pass
+```
 
-2. **filter_stock(stock_code, stock_data) -> bool**
-   - 判断股票是否符合筛选条件
-   - 返回 True 表示通过筛选
+### 可用指标
 
-### 数据格式
+通过 `self.indicator` 调用：
 
-`stock_data` 是一个 pandas DataFrame，包含以下列：
-- `date`: 日期
-- `open`: 开盘价
-- `close`: 收盘价
-- `high`: 最高价
-- `low`: 最低价
-- `volume`: 成交量
-- `amount`: 成交额（如果有）
+- `kdj(n=9, m1=3, m2=3)` → `{"K": ..., "D": ..., "J": ..., "RSV": ...}`
+- `zx_trend()` → `{"zx_short": ..., "zx_long": ..., "white": ..., "yellow": ..., "bbi": ..., "didi": ...}`
+- `amplitude()` → `float`
+
+### 交易方法
+
+- `self.buy_stock(price, volume)` — 买入（自动处理最小 100 股）
+- `self.sell_stock(price, volume)` — 卖出（自动处理最小 100 股）
+- `self.pos` — 当前持仓（正数为多头，0 为空仓）
+
+## 内置策略说明
+
+### B1 策略
+
+选股条件：
+- KDJ 的 J 值 < 13（低位）
+- 趋势白线在黄线上方
+- 收盘价在黄线 -1% 之上
+- 未涨停
+
+卖出条件：
+- KDJ 的 J 值 > 80（高位）
+- 满足 T+1（次日可卖）
+- 未跌停
+
+## A 股交易规则
+
+系统内置以下 A 股特有规则：
+
+- **T+1 限制**：当日买入次日才能卖出
+- **涨跌停限制**：涨停无法买入、跌停无法卖出
+  - 主板：±10%
+  - 创业板/科创板：±20%
+  - ST 股票：±5%
+- **最小交易单位**：1 手 = 100 股
+
+## 回测配置
+
+在 `config/settings.py` 中修改回测参数：
+
+```python
+BACKTEST_CONFIG = {
+    "capital": 100000,      # 初始资金
+    "rate": 0.001,          # 综合费率（简化模型）
+    "slippage": 0.01,       # 滑点
+    "size": 1,              # 合约乘数
+    "pricetick": 0.01,      # 最小价格变动
+    "interval": "daily",    # K 线周期
+}
+```
 
 ## 注意事项
 
-1. **数据源选择**：
-   - AKShare：免费，无需注册，但可能速度较慢
-   - Tushare：需要注册获取token，数据更全面
-
-2. **策略编写**：
-   - 确保 `filter_stock` 方法先进行快速筛选，减少不必要的计算
-   - `calculate_score` 方法可以更复杂，用于精细评分
-
-3. **性能优化**：
-   - 选股过程可能需要较长时间，建议先用小范围股票测试
-   - 可以设置 `max_stocks` 限制返回数量
-
-## 示例策略说明
-
-内置的 `ExampleStrategy` 实现了以下筛选条件：
-- 短期均线（20日）在长期均线（60日）之上
-- 最近5日涨幅为正
-- 成交量放大（最近5日平均成交量 > 最近20日平均成交量的1.2倍）
+1. **数据准备**：首次使用需先运行 `python main.py data` 下载数据
+2. **回测周期**：建议回测周期至少 6 个月，以获得统计意义
+3. **参数优化**：避免过度拟合，优化后需在样本外数据验证
+4. **实盘对接**：当前版本仅支持回测，实盘功能后续开发
 
 ## 许可证
 
