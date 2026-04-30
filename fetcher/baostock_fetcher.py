@@ -317,3 +317,88 @@ class BaoStockDataFetcher(DataFetcher):
         except Exception as e:
             print(f"获取股票 {stock_code} 数据失败: {e}")
             return pd.DataFrame()
+
+    def get_all_stock_list(self,
+                          filter_st: bool = True,
+                          filter_suspended: bool = True,
+                          cache_file: str = "data/stock_list.csv") -> List[str]:
+        """
+        获取全市场A股股票列表
+
+        :param filter_st: 是否过滤ST股票，默认True
+        :param filter_suspended: 是否过滤停牌股票，默认True
+        :param cache_file: 缓存文件路径
+        :return: 股票代码列表（格式：sh.600000）
+        """
+        if not self._logged_in:
+            print("BaoStock未登录，无法获取股票列表")
+            return []
+
+        try:
+            print("正在获取全市场A股股票列表...")
+
+            # 获取沪深A股列表
+            stock_list = []
+
+            # 获取沪市A股
+            rs = self.bs.query_all_stock(day=datetime.now().strftime('%Y-%m-%d'))
+            if rs.error_code == '0':
+                while rs.next():
+                    row = rs.get_row_data()
+                    code = row[0]  # 股票代码
+                    code_name = row[1]  # 股票名称
+
+                    # 只保留沪深A股（sh.6xxxxx, sz.0xxxxx, sz.3xxxxx）
+                    if code.startswith('sh.6') or code.startswith('sz.0') or code.startswith('sz.3'):
+                        # 过滤ST股票
+                        if filter_st and ('ST' in code_name or 'st' in code_name):
+                            continue
+                        stock_list.append(code)
+
+            print(f"获取到 {len(stock_list)} 只A股股票")
+
+            # 如果需要过滤停牌股票，检查最近交易日的交易状态
+            if filter_suspended and stock_list:
+                print("正在过滤停牌股票...")
+                last_trade_date = self.get_last_trade_date()
+                active_stocks = []
+
+                from tqdm import tqdm
+                for code in tqdm(stock_list, desc="检查交易状态"):
+                    try:
+                        rs = self.bs.query_history_k_data_plus(
+                            code,
+                            "tradestatus",
+                            start_date=last_trade_date,
+                            end_date=last_trade_date,
+                            frequency="d"
+                        )
+                        if rs.error_code == '0':
+                            data_list = []
+                            while rs.next():
+                                data_list.append(rs.get_row_data())
+
+                            # 如果有数据且交易状态为1（正常交易）
+                            if data_list and data_list[0][0] == '1':
+                                active_stocks.append(code)
+                    except Exception as e:
+                        # 查询失败的股票保留（避免误过滤）
+                        active_stocks.append(code)
+                        continue
+
+                stock_list = active_stocks
+                print(f"过滤后剩余 {len(stock_list)} 只正常交易股票")
+
+            # 保存到缓存文件
+            if stock_list and cache_file:
+                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    for code in stock_list:
+                        f.write(f"{code}\n")
+                print(f"股票列表已缓存到 {cache_file}")
+
+            return stock_list
+
+        except Exception as e:
+            print(f"获取股票列表失败: {e}")
+            return []

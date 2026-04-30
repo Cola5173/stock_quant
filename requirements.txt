@@ -5,6 +5,13 @@ tushare>=1.2.89
 akshare>=1.11.0
 baostock>=0.8.8
 openpyxl>=3.0.0
-vnpy==3.9.0
+vnpy>=3.9.0
 vnpy-ctastrategy>=1.0.0
 matplotlib>=3.7.0
+mplfinance>=0.12.0           # K线图绘制
+anthropic>=0.40.0            # Claude API
+apscheduler>=3.10.0          # 定时任务调度
+chinese-calendar>=1.9.0      # 中国节假日判断
+Pillow>=10.0.0               # 图片拼接
+pyyaml>=6.0                  # 配置文件解析
+

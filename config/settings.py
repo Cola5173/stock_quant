@@ -30,3 +30,17 @@ FEE_CONFIG = {
 # 可视化配置
 REPORT_DIR = "reports"
 PLOT_STYLE = "seaborn-v0_8-darkgrid"
+
+# 输出目录
+OUTPUT_DIR = "output"
+CANDIDATES_DIR = "output/candidates"
+CHARTS_DIR = "output/charts"
+SCORES_DIR = "output/scores"
+SIGNALS_DIR = "output/signals"
+PORTFOLIO_DIR = "output/portfolio"
+
+# 日志目录
+LOG_DIR = "logs"
+
+# 全市场股票列表缓存
+STOCK_LIST_CACHE = "data/stock_list.csv"

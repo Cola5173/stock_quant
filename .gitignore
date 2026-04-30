@@ -61,9 +61,10 @@ config.json
 tushare_token.txt
 secrets/
 
-# 日志文件
+# 日志文件（保留目录结构）
 *.log
-logs/
+logs/*
+!logs/.gitkeep
 *.log.*
 
 # 临时文件
@@ -95,6 +96,6 @@ Desktop.ini
 *.bak
 *.backup
 
-
+.superpowers/
 .claude/
 
