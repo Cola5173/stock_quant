@@ -1,8 +1,9 @@
 """
 主程序入口
-支持子命令：data（数据管理）、backtest（回测）、optimize（参数优化）
+支持子命令：data（数据管理）、backtest（回测）、optimize（参数优化）、scan（全市场扫描）
 """
 import argparse
+import os
 from datetime import datetime
 
 
@@ -119,6 +120,55 @@ def cmd_optimize(args):
         print(f"  #{i+1}: {params} -> 夏普比率: {target:.4f}")
 
 
+def cmd_scan(args):
+    """全市场扫描筛选 + K线图生成"""
+    from scanner.scanner import Scanner
+    from visualizer.chart_generator import ChartGenerator
+    from config import settings
+
+    # 获取股票列表
+    stock_list_file = settings.STOCK_LIST_CACHE
+    if not os.path.exists(stock_list_file):
+        stock_list_file = settings.STOCK_CODE_FILE
+
+    stock_codes = []
+    with open(stock_list_file, "r", encoding="utf-8-sig") as f:
+        for line in f:
+            code = line.strip()
+            if code:
+                stock_codes.append(code)
+
+    if not stock_codes:
+        print("未找到股票列表，请先运行 data 命令下载数据")
+        return
+
+    print("=" * 60)
+    print(f"全市场扫描: {args.strategy} | {args.date} | {len(stock_codes)} 只股票")
+    print("=" * 60)
+
+    # 扫描
+    scanner = Scanner(args.strategy, stock_codes)
+    candidates = scanner.scan(args.date)
+
+    if not candidates:
+        print("未找到符合条件的候选股票")
+        return
+
+    # 保存候选结果
+    output_path = scanner.save_candidates(candidates, args.date)
+    print(f"筛选完成: {len(candidates)} 只候选股票 -> {output_path}")
+
+    # 生成K线图
+    print()
+    print("=" * 60)
+    print(f"生成K线图: {len(candidates)} 只候选股票")
+    print("=" * 60)
+
+    generator = ChartGenerator()
+    chart_paths = generator.generate_batch(candidates, args.date)
+    print(f"K线图生成完成: {len(chart_paths)} 张")
+
+
 def main():
     parser = argparse.ArgumentParser(description="A 股量化交易回测系统")
     subparsers = parser.add_subparsers(dest="command", help="子命令")
@@ -142,6 +192,11 @@ def main():
     p_opt.add_argument("--start", required=True, help="开始日期 YYYY-MM-DD")
     p_opt.add_argument("--end", required=True, help="结束日期 YYYY-MM-DD")
 
+    # scan 子命令
+    p_scan = subparsers.add_parser("scan", help="全市场扫描筛选")
+    p_scan.add_argument("--strategy", required=True, help="策略名称 (如 b1)")
+    p_scan.add_argument("--date", required=True, help="扫描日期 YYYY-MM-DD")
+
     args = parser.parse_args()
 
     if args.command == "data":
@@ -150,6 +205,8 @@ def main():
         cmd_backtest(args)
     elif args.command == "optimize":
         cmd_optimize(args)
+    elif args.command == "scan":
+        cmd_scan(args)
     else:
         parser.print_help()
 
