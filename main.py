@@ -169,6 +169,63 @@ def cmd_scan(args):
     print(f"K线图生成完成: {len(chart_paths)} 张")
 
 
+def cmd_score(args):
+    """LLM 两阶段打分"""
+    import json
+    from llm_scorer.scorer import TwoStageScorer
+    from llm_scorer.clients.claude_client import ClaudeClient
+    from config import settings
+
+    # 读取候选股票
+    date_str = args.date.replace("-", "")
+    candidates_file = os.path.join(settings.CANDIDATES_DIR, f"candidates_{date_str}.json")
+
+    if not os.path.exists(candidates_file):
+        print(f"候选股票文件不存在: {candidates_file}")
+        print("请先运行 scan 命令生成候选股票")
+        return
+
+    with open(candidates_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        candidates = data.get("candidates", [])
+
+    if not candidates:
+        print("候选股票列表为空")
+        return
+
+    # 获取 API Key
+    api_key = os.getenv("CLAUDE_API_KEY")
+    if not api_key:
+        print("错误: 未设置 CLAUDE_API_KEY 环境变量")
+        print("请运行: export CLAUDE_API_KEY=your_api_key")
+        return
+
+    print("=" * 60)
+    print(f"LLM 两阶段打分: {args.date} | {len(candidates)} 只候选")
+    print(f"模型: {args.model}")
+    print("=" * 60)
+
+    # 初始化客户端
+    client = ClaudeClient(api_key=api_key, model=args.model)
+    scorer = TwoStageScorer(client)
+
+    # 执行打分
+    result = scorer.score(candidates, args.date)
+
+    # 保存结果
+    output_path = scorer.save_result(result, args.date)
+    print()
+    print(f"打分完成: TOP 10 已保存到 {output_path}")
+
+    # 显示 TOP 10
+    print()
+    print("TOP 10 股票:")
+    print("-" * 60)
+    for item in result["final_top10"]:
+        print(f"  #{item['rank']}: {item['symbol']} - 评分: {item['score']} - {item['recommendation']}")
+
+
+
 def main():
     parser = argparse.ArgumentParser(description="A 股量化交易回测系统")
     subparsers = parser.add_subparsers(dest="command", help="子命令")
@@ -197,6 +254,11 @@ def main():
     p_scan.add_argument("--strategy", required=True, help="策略名称 (如 b1)")
     p_scan.add_argument("--date", required=True, help="扫描日期 YYYY-MM-DD")
 
+    # score 子命令
+    p_score = subparsers.add_parser("score", help="LLM 两阶段打分")
+    p_score.add_argument("--date", required=True, help="打分日期 YYYY-MM-DD")
+    p_score.add_argument("--model", default="claude-opus-4-20250514", help="LLM 模型名称")
+
     args = parser.parse_args()
 
     if args.command == "data":
@@ -207,6 +269,8 @@ def main():
         cmd_optimize(args)
     elif args.command == "scan":
         cmd_scan(args)
+    elif args.command == "score":
+        cmd_score(args)
     else:
         parser.print_help()
 
