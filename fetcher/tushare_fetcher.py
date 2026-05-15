@@ -3,8 +3,10 @@ Tushare 数据获取模块
 使用 Tushare Pro 接口，通过 config.tushare_client 统一初始化
 """
 import os
+import io
 import time
 import logging
+import contextlib
 from typing import List, Optional
 from datetime import datetime, timedelta
 
@@ -146,12 +148,12 @@ class TushareDataFetcher(DataFetcher):
                 else:
                     local_min = existing_df[KLineConstants.DATE].min()
                     local_max = existing_df[KLineConstants.DATE].max()
-                    # 向前回填 [ts_start, local_min - 1天]
-                    if ts_start_ts < local_min:
+                    # 向前回填 [ts_start, local_min - 1天]：差 >= 3 天才值得请求（避开纯节假日窗口）
+                    if (local_min - ts_start_ts).days >= 3:
                         backfill_end = (local_min - timedelta(days=1)).strftime("%Y%m%d")
                         ranges.append((ts_start, backfill_end))
-                    # 向后增量 [local_max + 1天, ts_end]
-                    if ts_end_ts > local_max:
+                    # 向后增量 [local_max + 1天, ts_end]：差 >= 1 天即拉
+                    if (ts_end_ts - local_max).days >= 1:
                         forward_start = (local_max + timedelta(days=1)).strftime("%Y%m%d")
                         ranges.append((forward_start, ts_end))
 
@@ -190,14 +192,16 @@ class TushareDataFetcher(DataFetcher):
 
         for attempt in range(3):
             try:
-                df = self.ts.pro_bar(
-                    api=self.pro,
-                    ts_code=ts_code,
-                    adj="qfq",
-                    start_date=start_date,
-                    end_date=end_date,
-                    freq="D",
-                )
+                # tushare 内部对空响应会 print 异常字符串，用 redirect_stdout 静默
+                with contextlib.redirect_stdout(io.StringIO()):
+                    df = self.ts.pro_bar(
+                        api=self.pro,
+                        ts_code=ts_code,
+                        adj="qfq",
+                        start_date=start_date,
+                        end_date=end_date,
+                        freq="D",
+                    )
                 break
             except Exception as e:
                 msg = str(e)
