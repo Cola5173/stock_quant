@@ -129,9 +129,11 @@ class TushareDataFetcher(DataFetcher):
         success_count = 0
         failed_count = 0
 
-        for stock_code in tqdm(sorted(stock_codes), desc="下载数据"):
+        pbar = tqdm(sorted(stock_codes, key=_normalize_stock_code), desc="下载数据")
+        for stock_code in pbar:
             try:
                 symbol = _normalize_stock_code(stock_code)
+                pbar.set_description(f"download {symbol} K line data")
 
                 existing_df = self._load_stock_data(symbol)
                 if not existing_df.empty:

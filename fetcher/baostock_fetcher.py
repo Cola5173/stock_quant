@@ -115,15 +115,16 @@ class BaoStockDataFetcher(DataFetcher):
             failed_count = 0
             success_count = 0
             index = 0
-            for stock_code in tqdm(sorted(stocks_to_download), desc="下载数据"):
+            pbar = tqdm(sorted(stocks_to_download, key=_normalize_stock_code), desc="下载数据")
+            for stock_code in pbar:
                 try:
                     index += 1
                     normalized_stock_code = _normalize_stock_code(stock_code)
+                    pbar.set_description(f"download {normalized_stock_code} K line data")
                     # 获取最近的交易日，字符串格式 'YYYY-MM-DD'
                     end_date_str = self.get_last_trade_date()
                     # 用于 DataFrame 比较时转为 Timestamp
                     end_date_ts = pd.to_datetime(end_date_str)
-                    print(f"step 1.3.1: ----> 下载第 {index} 只股票: {normalized_stock_code}")
 
                     # 1. 获取data目录下的数据（历史已保存部分）
                     df = self._load_stock_data(normalized_stock_code)
