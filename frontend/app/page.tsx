@@ -18,8 +18,9 @@ import type { BacktestRequest, BacktestResponse, StockItem } from "@/lib/types";
 export default function HomePage() {
   const [navActive, setNavActive] = useNav();
 
-  // K线图表 tab 状态
-  const [chartStock, setChartStock] = useState<StockItem | null>(null);
+  // K线图表 tab 状态（默认上证指数）
+  const DEFAULT_INDEX: StockItem = { code: "idx_000001_SH", name: "上证指数", label: "上证指数 (000001.SH)", exchange: "SH" };
+  const [chartStock, setChartStock] = useState<StockItem>(DEFAULT_INDEX);
 
   // 回测 tab 状态
   const [params, setParams] = useState<BacktestParams | null>(null);
@@ -30,9 +31,9 @@ export default function HomePage() {
 
   // K线图表用的 query
   const chartKlineQuery = useQuery({
-    queryKey: ["chart-kline", chartStock?.code, twoYearsAgo, today],
-    queryFn: () => api.kline(chartStock!.code, twoYearsAgo, today),
-    enabled: navActive === "chart" && !!chartStock?.code,
+    queryKey: ["chart-kline", chartStock.code, twoYearsAgo, today],
+    queryFn: () => api.kline(chartStock.code, twoYearsAgo, today),
+    enabled: navActive === "chart",
   });
 
   // 回测用的 query
@@ -48,7 +49,7 @@ export default function HomePage() {
   });
 
   const subtitle = navActive === "chart" && chartStock
-    ? `${chartStock.code}.${chartStock.exchange} · ${chartStock.name}`
+    ? chartStock.name
     : navActive === "backtest" && params?.selectedStock
       ? `${params.selectedStock.code}.${params.selectedStock.exchange} · ${params.selectedStock.name}`
       : undefined;
@@ -76,19 +77,12 @@ export default function HomePage() {
                 <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4 overflow-y-auto">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-zinc-200">K 线走势</h3>
-                    {chartStock && (
-                      <span className="text-xs text-zinc-500">{chartStock.label}</span>
-                    )}
+                    <span className="text-xs text-zinc-500">{chartStock.label}</span>
                   </div>
-                  {!chartStock && (
-                    <div className="h-[400px] flex items-center justify-center text-zinc-500 text-sm">
-                      请在上方搜索并选择股票
-                    </div>
-                  )}
-                  {chartStock && chartKlineQuery.isPending && (
+                  {chartKlineQuery.isPending && (
                     <div className="h-[400px] flex items-center justify-center text-zinc-500 text-sm">加载中…</div>
                   )}
-                  {chartStock && chartKlineQuery.isError && (
+                  {chartKlineQuery.isError && (
                     <div className="h-[400px] flex items-center justify-center text-zinc-500 text-sm">
                       未能加载数据
                     </div>
@@ -99,7 +93,7 @@ export default function HomePage() {
                 </div>
 
                 <div className="overflow-y-auto h-full">
-                  <StockInfoPanel code={chartStock?.code ?? ""} />
+                  <StockInfoPanel code={chartStock.code} />
                 </div>
               </div>
             </div>

@@ -14,7 +14,7 @@ export function StockSearchBar({ onSelect }: { onSelect: (stock: StockItem) => v
   const [selected, setSelected] = useState<StockItem | null>(null);
 
   const filtered = useMemo(() => {
-    if (!search) return stocks.slice(0, 30);
+    if (!search) return [];
     const q = search.toLowerCase();
     return stocks.filter((s) =>
       s.code.includes(q) || s.name.toLowerCase().includes(q)
