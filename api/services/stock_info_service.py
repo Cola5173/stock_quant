@@ -100,13 +100,40 @@ def _fetch_tushare_market(code: str) -> Dict[str, Any]:
     return out
 
 
+def _fetch_akshare_em(code: str) -> Dict[str, Any]:
+    """
+    优先使用 akshare 的 stock_individual_info_em（东方财富）
+    返回字段：最新、股票代码、股票简称、总股本、流通股、总市值、流通市值、行业、上市时间
+    """
+    out: Dict[str, Any] = {}
+    try:
+        import akshare as ak
+        with _no_proxy():
+            df = ak.stock_individual_info_em(symbol=code)
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                out[str(row["item"])] = row["value"]
+    except Exception as e:
+        logger.warning(f"stock_individual_info_em 失败: {e}（将降级到 Tushare）")
+    return out
+
+
 def get_stock_info(code: str) -> Optional[Dict[str, Any]]:
-    """合并 Tushare 行情 + 巨潮 公司概况"""
+    """
+    合并多个数据源：
+      1. 行情/市值/行业/上市：优先 akshare 东方财富，失败降级 Tushare
+      2. 公司概况：akshare 巨潮 stock_profile_cninfo
+    """
     try:
         result: Dict[str, Any] = {}
 
-        # 1. Tushare 行情数据
-        result.update(_fetch_tushare_market(code))
+        # 1. 行情数据：优先 akshare EM
+        em_data = _fetch_akshare_em(code)
+        if em_data:
+            result.update(em_data)
+        else:
+            # 降级到 Tushare
+            result.update(_fetch_tushare_market(code))
 
         # 2. 巨潮：公司全称、主营业务、法人、注册资本、机构简介等
         try:
