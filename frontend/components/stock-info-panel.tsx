@@ -2,14 +2,22 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Building2, Users, Phone, Globe, MapPin, Calendar, Banknote } from "lucide-react";
+import { Building2, Users, Phone, Globe, MapPin, Calendar, Banknote, TrendingUp, Layers } from "lucide-react";
 
 const INFO_FIELDS = [
+  // 行情数据（来自东方财富 stock_individual_info_em）
+  { key: "最新", label: "最新价", icon: TrendingUp },
+  { key: "总市值", label: "总市值", icon: Banknote, format: "capital" },
+  { key: "流通市值", label: "流通市值", icon: Banknote, format: "capital" },
+  { key: "总股本", label: "总股本", icon: Layers, format: "shares" },
+  { key: "流通股", label: "流通股", icon: Layers, format: "shares" },
+  { key: "行业", label: "所属行业" },
+  { key: "上市时间", label: "上市时间", icon: Calendar, format: "yyyymmdd" },
+  // 公司基本信息（来自巨潮 stock_profile_cninfo）
   { key: "short_name", label: "公司简称", icon: Building2 },
   { key: "company_name", label: "公司全称" },
   { key: "main_business", label: "主营业务" },
   { key: "legal_representative", label: "法人代表", icon: Users },
-  { key: "industry", label: "所属行业" },
   { key: "market", label: "所属市场" },
   { key: "reg_capital", label: "注册资本", icon: Banknote, format: "capital" },
   { key: "established_date", label: "成立日期", icon: Calendar },
@@ -17,8 +25,6 @@ const INFO_FIELDS = [
   { key: "telephone", label: "联系电话", icon: Phone },
   { key: "website", label: "官网", icon: Globe },
   { key: "reg_address", label: "注册地址", icon: MapPin },
-  { key: "总市值", label: "总市值", icon: Banknote, format: "capital" },
-  { key: "流通市值", label: "流通市值", icon: Banknote, format: "capital" },
 ] as const;
 
 function formatValue(value: string | number | null, format?: string): string {
@@ -30,11 +36,26 @@ function formatValue(value: string | number | null, format?: string): string {
     }
     return String(value);
   }
+  if (format === "yyyymmdd") {
+    const s = String(value);
+    if (/^\d{8}$/.test(s)) {
+      return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+    }
+    return s;
+  }
   if (format === "capital") {
     const num = Number(value);
     if (!isNaN(num)) {
       if (num >= 1e8) return `${(num / 1e8).toFixed(2)} 亿`;
       if (num >= 1e4) return `${(num / 1e4).toFixed(0)} 万`;
+    }
+    return String(value);
+  }
+  if (format === "shares") {
+    const num = Number(value);
+    if (!isNaN(num)) {
+      if (num >= 1e8) return `${(num / 1e8).toFixed(2)} 亿股`;
+      if (num >= 1e4) return `${(num / 1e4).toFixed(0)} 万股`;
     }
     return String(value);
   }
