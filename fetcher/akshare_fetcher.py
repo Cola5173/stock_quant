@@ -177,6 +177,34 @@ class AkShareDataFetcher(DataFetcher):
             logger.debug(f"获取 {symbol} 数据失败: {e}")
             return None
 
+    def _fetch_spot_em_with_retry(self, max_retries: int = 3) -> Optional[pd.DataFrame]:
+        """
+        调用 ak.stock_zh_a_spot_em() 获取全市场实时行情，带指数退避重试。
+        东方财富接口偶发限流/连接被重置，单次失败不代表真的拿不到。
+        """
+        import requests
+
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                return self.ak.stock_zh_a_spot_em()
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.Timeout,
+                    ConnectionResetError) as e:
+                last_err = e
+                wait = 2 ** attempt
+                logger.warning(f"获取全市场行情失败（第 {attempt + 1}/{max_retries} 次），{wait}s 后重试: {e}")
+                time.sleep(wait)
+            except Exception as e:
+                last_err = e
+                logger.warning(f"获取全市场行情异常（第 {attempt + 1}/{max_retries} 次）: {e}")
+                time.sleep(2 ** attempt)
+
+        if last_err is not None:
+            raise last_err
+        return None
+
     def get_all_stock_list(self, filter_st: bool = True,
                            cache_file: str = None) -> List[str]:
         """
@@ -190,10 +218,10 @@ class AkShareDataFetcher(DataFetcher):
 
         try:
             print("正在获取全市场A股股票列表...")
-            df = self.ak.stock_zh_a_spot_em()
+            df = self._fetch_spot_em_with_retry()
 
             if df is None or df.empty:
-                print("获取股票列表失败")
+                print("获取股票列表失败：返回数据为空")
                 return []
 
             stock_list = []
