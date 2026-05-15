@@ -9,7 +9,15 @@ import { BacktestPanel, type BacktestParams } from "@/components/backtest-panel"
 import { KlineChart } from "@/components/kline-chart";
 import { EquityChart } from "@/components/equity-chart";
 import { StatsCards, TradesTable } from "@/components/results";
-import type { BacktestRequest, BacktestResponse } from "@/lib/types";
+import { StrategyLibrary } from "@/components/strategy-library";
+import type { BacktestRequest, BacktestResponse, BacktestStats } from "@/lib/types";
+
+const EMPTY_STATS: BacktestStats = {
+  total_return: 0,
+  max_drawdown: 0,
+  sharpe_ratio: 0,
+  total_trade_count: 0,
+};
 
 export default function HomePage() {
   const [navActive, setNavActive] = useNav();
@@ -27,15 +35,21 @@ export default function HomePage() {
     onSuccess: (data) => setResult(data),
   });
 
+  const subtitle = params?.selectedStock
+    ? `${params.selectedStock.code}.${params.selectedStock.exchange} · ${params.selectedStock.name}`
+    : undefined;
+  const dateRange = params ? `${params.start} ~ ${params.end}` : undefined;
+
   return (
     <div className="flex flex-1 min-h-0">
       <Sidebar active={navActive} onChange={setNavActive} />
       <div className="flex-1 flex flex-col min-w-0">
-        <Header />
-        <main className="flex-1 overflow-auto p-6">
+        <Header subtitle={subtitle} dateRange={dateRange} />
+        <main className="flex-1 overflow-hidden p-6">
           {navActive === "backtest" ? (
-            <div className="grid grid-cols-[320px_1fr] gap-6 max-w-[1600px] mx-auto">
-              <div className="space-y-4">
+            <div className="grid grid-cols-[300px_1fr_280px] gap-5 h-full max-w-[1800px] mx-auto">
+              {/* 左：参数 */}
+              <div className="overflow-y-auto pr-1">
                 <BacktestPanel
                   onSubmit={(req) => { setResult(null); backtest.mutate(req); }}
                   onParamsChange={setParams}
@@ -43,8 +57,9 @@ export default function HomePage() {
                 />
               </div>
 
-              <div className="space-y-6 min-w-0">
-                {result && <StatsCards stats={result.stats} />}
+              {/* 中：图表 */}
+              <div className="flex flex-col gap-5 min-w-0 overflow-y-auto pr-1">
+                <StatsCards stats={result?.stats ?? EMPTY_STATS} />
 
                 {backtest.isError && (
                   <div className="bg-red-950/50 border border-red-900 rounded-lg p-4 text-red-300 text-sm">
@@ -52,29 +67,35 @@ export default function HomePage() {
                   </div>
                 )}
 
-                <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4">
+                <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4 flex flex-col flex-1 min-h-[420px]">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-zinc-200">K 线走势</h3>
                     {params?.selectedStock && (
                       <span className="text-xs text-zinc-500">{params.selectedStock.label}</span>
                     )}
                   </div>
-                  {!params?.code && (
-                    <div className="h-96 flex items-center justify-center text-zinc-500 text-sm">
-                      请在左侧选择股票
-                    </div>
-                  )}
-                  {params?.code && klineQuery.isPending && (
-                    <div className="h-96 flex items-center justify-center text-zinc-500 text-sm">加载中…</div>
-                  )}
-                  {params?.code && klineQuery.isError && (
-                    <div className="h-96 flex items-center justify-center text-zinc-500 text-sm">
-                      未找到本地数据，请先用后端拉取
-                    </div>
-                  )}
-                  {klineQuery.data && klineQuery.data.length > 0 && (
-                    <KlineChart bars={klineQuery.data} trades={result?.trades ?? []} />
-                  )}
+                  <div className="flex-1 flex flex-col">
+                    {!params?.code && (
+                      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
+                        请在左侧选择股票
+                      </div>
+                    )}
+                    {params?.code && klineQuery.isPending && (
+                      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">加载中…</div>
+                    )}
+                    {params?.code && klineQuery.isError && (
+                      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm text-center px-4">
+                        未能从后端拉到数据
+                        <br />
+                        <span className="text-xs text-zinc-600 mt-1 block">
+                          {(klineQuery.error as Error)?.message}
+                        </span>
+                      </div>
+                    )}
+                    {klineQuery.data && klineQuery.data.length > 0 && (
+                      <KlineChart bars={klineQuery.data} trades={result?.trades ?? []} />
+                    )}
+                  </div>
                 </div>
 
                 {result && result.equity_curve.length > 0 && (
@@ -85,6 +106,11 @@ export default function HomePage() {
                 )}
 
                 {result && <TradesTable trades={result.trades} />}
+              </div>
+
+              {/* 右：策略库 */}
+              <div className="min-h-0">
+                <StrategyLibrary activeKey={params?.strategy} />
               </div>
             </div>
           ) : (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, Play, Search } from "lucide-react";
 import { api } from "@/lib/api";
@@ -64,7 +64,7 @@ export function BacktestPanel({
   const code = selectedStock?.code ?? "";
 
   // 同步参数到父级（用于预览 K 线）
-  useMemo(() => {
+  useEffect(() => {
     onParamsChange({ strategy, code, start, end, capital: capitalW * 10000, selectedStock });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategy, code, start, end, capitalW]);
@@ -80,9 +80,13 @@ export function BacktestPanel({
           onChange={(e) => setStrategy(e.target.value)}
           className="w-full mt-1.5 bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
         >
-          {strategies.map((s) => (
-            <option key={s.key} value={s.key}>{s.name}</option>
-          ))}
+          {strategies.length === 0 ? (
+            <option value={strategy}>加载中…</option>
+          ) : (
+            strategies.map((s) => (
+              <option key={s.key} value={s.key}>{s.name}</option>
+            ))
+          )}
         </select>
       </div>
 
