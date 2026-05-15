@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { Header } from "@/components/header";
 import { Sidebar, useNav } from "@/components/sidebar";
@@ -12,9 +12,22 @@ import { StatsCards, TradesTable } from "@/components/results";
 import { StrategyLibrary } from "@/components/strategy-library";
 import { HomePage as HomePanel } from "@/components/home-page";
 import { StockInfoPanel } from "@/components/stock-info-panel";
-import { StockSearchBar } from "@/components/stock-search-bar";
+import { ChartToolbar, aggregateToWeekly, type Granularity, type TimeRange } from "@/components/chart-toolbar";
 import { SettingsPage } from "@/components/settings-page";
 import type { BacktestRequest, BacktestResponse, StockItem } from "@/lib/types";
+
+function getDateRange(range: TimeRange): { start: string; end: string } {
+  const end = new Date();
+  const start = new Date();
+  switch (range) {
+    case "3m": start.setMonth(end.getMonth() - 3); break;
+    case "6m": start.setMonth(end.getMonth() - 6); break;
+    case "1y": start.setFullYear(end.getFullYear() - 1); break;
+    case "3y": start.setFullYear(end.getFullYear() - 3); break;
+    case "all": start.setFullYear(end.getFullYear() - 10); break;
+  }
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+}
 
 export default function HomePage() {
   const [navActive, setNavActive] = useNav();
@@ -22,18 +35,22 @@ export default function HomePage() {
   // K线图表 tab 状态（默认上证指数）
   const DEFAULT_INDEX: StockItem = { code: "idx_000001_SH", name: "上证指数", label: "上证指数 (000001.SH)", exchange: "SH" };
   const [chartStock, setChartStock] = useState<StockItem>(DEFAULT_INDEX);
+  const [chartGranularity, setChartGranularity] = useState<Granularity>("day");
+  const [chartRange, setChartRange] = useState<TimeRange>("1y");
 
   // 回测 tab 状态
   const [params, setParams] = useState<BacktestParams | null>(null);
   const [result, setResult] = useState<BacktestResponse | null>(null);
+
+  const { start: chartStart, end: chartEnd } = useMemo(() => getDateRange(chartRange), [chartRange]);
 
   const today = new Date().toISOString().slice(0, 10);
   const twoYearsAgo = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 2); return d.toISOString().slice(0, 10); })();
 
   // K线图表用的 query
   const chartKlineQuery = useQuery({
-    queryKey: ["chart-kline", chartStock.code, twoYearsAgo, today],
-    queryFn: () => api.kline(chartStock.code, twoYearsAgo, today),
+    queryKey: ["chart-kline", chartStock.code, chartStart, chartEnd],
+    queryFn: () => api.kline(chartStock.code, chartStart, chartEnd),
     enabled: navActive === "chart",
   });
 
@@ -70,8 +87,16 @@ export default function HomePage() {
           {/* K线图表 */}
           {navActive === "chart" && (
             <div className="flex flex-col gap-4 h-full">
-              {/* 顶部搜索栏 */}
-              <StockSearchBar onSelect={setChartStock} />
+              {/* 顶部工具栏 */}
+              <ChartToolbar
+                stock={chartStock}
+                bars={chartKlineQuery.data ?? []}
+                granularity={chartGranularity}
+                timeRange={chartRange}
+                onSelectStock={setChartStock}
+                onGranularityChange={setChartGranularity}
+                onTimeRangeChange={setChartRange}
+              />
 
               {/* 内容区：K线 + 个股信息 */}
               <div className="grid grid-cols-[1fr_280px] gap-4 flex-1 min-h-0">
@@ -89,7 +114,7 @@ export default function HomePage() {
                     </div>
                   )}
                   {chartKlineQuery.data && chartKlineQuery.data.length > 0 && (
-                    <KlineChart bars={chartKlineQuery.data} />
+                    <KlineChart bars={chartGranularity === "week" ? aggregateToWeekly(chartKlineQuery.data) : chartKlineQuery.data} />
                   )}
                 </div>
 
