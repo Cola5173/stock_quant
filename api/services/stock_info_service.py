@@ -118,12 +118,159 @@ def _fetch_akshare_em(code: str) -> Dict[str, Any]:
     return out
 
 
+def _is_index(code: str) -> bool:
+    """判断是否为指数代码（idx_ 前缀）"""
+    return code.startswith("idx_")
+
+
+def _parse_index_code(code: str) -> tuple:
+    """idx_000001_SH → ('000001.SH', 'sh.000001')"""
+    raw = code[4:]  # 000001_SH
+    parts = raw.rsplit("_", 1)  # ['000001', 'SH']
+    ts_code = f"{parts[0]}.{parts[1]}"  # 000001.SH
+    bs_prefix = "sh" if parts[1] == "SH" else "sz"
+    bs_code = f"{bs_prefix}.{parts[0]}"  # sh.000001
+    return ts_code, bs_code
+
+
+def _fetch_index_info_baostock(bs_code: str) -> Dict[str, Any]:
+    """BaoStock 查询指数信息"""
+    out: Dict[str, Any] = {}
+    try:
+        import baostock as bs
+        lg = bs.login()
+        if lg.error_code != '0':
+            return out
+        rs = bs.query_stock_basic(code=bs_code)
+        if rs.error_code == '0':
+            while rs.next():
+                row = rs.get_row_data()
+                if len(row) >= 5:
+                    out["股票代码"] = row[0]
+                    out["股票简称"] = row[1]
+                    if row[4]:
+                        out["上市时间"] = row[4]
+        bs.logout()
+    except Exception as e:
+        logger.debug(f"BaoStock 指数信息失败: {e}")
+    return out
+
+
+def _fetch_index_info_tushare(ts_code: str) -> Dict[str, Any]:
+    """Tushare 查询指数信息：index_basic + index_dailybasic"""
+    out: Dict[str, Any] = {}
+    try:
+        from api.fetcher.tushare_client import pro
+
+        # index_basic：名称、发布方、基日、基点、上市日期
+        try:
+            ib = pro.index_basic(ts_code=ts_code)
+            if ib is not None and not ib.empty:
+                row = ib.iloc[0]
+                out["股票简称"] = row.get("name", "")
+                out["股票代码"] = ts_code
+                if row.get("list_date"):
+                    out["上市时间"] = str(row["list_date"])
+                if row.get("publisher"):
+                    out["发布方"] = row["publisher"]
+                if row.get("category"):
+                    out["类别"] = row["category"]
+                if row.get("base_date"):
+                    out["基日"] = str(row["base_date"])
+                if row.get("base_point"):
+                    out["基点"] = float(row["base_point"])
+        except Exception as e:
+            logger.debug(f"index_basic 失败: {e}")
+
+        # index_dailybasic：总市值、PE、PB 等
+        for offset in range(0, 10):
+            try:
+                day = (datetime.now() - timedelta(days=offset)).strftime("%Y%m%d")
+                db = pro.index_dailybasic(ts_code=ts_code, trade_date=day)
+                if db is None or db.empty:
+                    continue
+                row = db.iloc[0]
+                if row.get("total_mv") is not None:
+                    out["总市值"] = float(row["total_mv"])
+                if row.get("float_mv") is not None:
+                    out["流通市值"] = float(row["float_mv"])
+                if row.get("total_share") is not None:
+                    out["总股本"] = float(row["total_share"]) * 1e4
+                if row.get("float_share") is not None:
+                    out["流通股"] = float(row["float_share"]) * 1e4
+                if row.get("pe") is not None:
+                    out["pe"] = round(float(row["pe"]), 2)
+                if row.get("pe_ttm") is not None:
+                    out["pe_ttm"] = round(float(row["pe_ttm"]), 2)
+                if row.get("pb") is not None:
+                    out["pb"] = round(float(row["pb"]), 2)
+                if row.get("turnover_rate") is not None:
+                    out["换手率"] = round(float(row["turnover_rate"]), 2)
+                break
+            except Exception as e:
+                logger.debug(f"index_dailybasic {day} 失败: {e}")
+                continue
+    except Exception as e:
+        logger.warning(f"Tushare 指数信息失败: {e}")
+    return out
+
+
+def _fetch_index_info_akshare(code: str) -> Dict[str, Any]:
+    """AkShare 查询指数信息（东方财富）"""
+    out: Dict[str, Any] = {}
+    try:
+        import akshare as ak
+        # 去掉 idx_ 前缀取纯数字
+        symbol = code[4:].split("_")[0]
+        with _no_proxy():
+            df = ak.stock_individual_info_em(symbol=symbol)
+        if df is not None and not df.empty:
+            for _, row in df.iterrows():
+                out[str(row["item"])] = row["value"]
+    except Exception as e:
+        logger.debug(f"AkShare 指数信息失败: {e}")
+    return out
+
+
+def _get_index_info(code: str) -> Optional[Dict[str, Any]]:
+    """
+    指数信息查询，降级链：BaoStock → Tushare → AkShare
+    """
+    ts_code, bs_code = _parse_index_code(code)
+
+    # 1. BaoStock
+    result = _fetch_index_info_baostock(bs_code)
+    if result:
+        logger.info(f"指数 {code} 信息来源: BaoStock")
+
+    # 2. Tushare（补充或兜底）
+    ts_data = _fetch_index_info_tushare(ts_code)
+    if ts_data:
+        if not result:
+            logger.info(f"指数 {code} 信息来源: Tushare")
+        for k, v in ts_data.items():
+            if k not in result:
+                result[k] = v
+
+    # 3. AkShare（最后兜底）
+    if not result:
+        ak_data = _fetch_index_info_akshare(code)
+        if ak_data:
+            logger.info(f"指数 {code} 信息来源: AkShare")
+            result = ak_data
+
+    return result if result else None
+
+
 def get_stock_info(code: str) -> Optional[Dict[str, Any]]:
     """
-    合并多个数据源：
-      1. 行情/市值/行业/上市：优先 akshare 东方财富，失败降级 Tushare
-      2. 公司概况：akshare 巨潮 stock_profile_cninfo
+    统一入口：
+    - 指数（idx_ 前缀）：降级链 BaoStock → Tushare → AkShare
+    - 个股：akshare EM 优先，失败降级 Tushare + 巨潮公司概况
     """
+    if _is_index(code):
+        return _get_index_info(code)
+
     try:
         result: Dict[str, Any] = {}
 
