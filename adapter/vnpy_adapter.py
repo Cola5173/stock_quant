@@ -15,7 +15,7 @@ from vnpy.trader.database import get_database
 
 from api.config import settings
 from api.schemas.kline_constants import KLineConstants
-from utils.utils import _normalize_stock_code
+from api.utils.utils import _normalize_stock_code
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ import pandas as pd
 from .fetcher import DataFetcher
 from api.schemas.kline_constants import KLineConstants
 from api.config import settings
-from utils.utils import _normalize_stock_code
+from api.utils.utils import _normalize_stock_code
 
 logger = logging.getLogger(__name__)
 

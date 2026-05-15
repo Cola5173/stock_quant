@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from .fetcher import DataFetcher
 from api.schemas.kline_constants import KLineConstants
 from api.config import settings
-from utils.utils import _normalize_stock_code, _convert_stock_code
+from api.utils.utils import _normalize_stock_code, _convert_stock_code
 
 
 class BaoStockDataFetcher(DataFetcher):

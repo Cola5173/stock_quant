@@ -1,8 +1,28 @@
 """个股详细信息服务（数据来源：东方财富 + 巨潮 via AkShare）"""
+import os
+import contextlib
 import logging
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def _no_proxy():
+    """临时禁用 HTTP/HTTPS 代理（部分接口走系统代理会失败，国内接口直连即可）"""
+    saved = {k: os.environ.get(k) for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy")}
+    os.environ["NO_PROXY"] = "*"
+    os.environ["no_proxy"] = "*"
+    for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        os.environ.pop(k, None)
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def _to_xq_symbol(code: str) -> str:
@@ -20,18 +40,20 @@ def get_stock_info(code: str) -> Optional[Dict[str, Any]]:
         import akshare as ak
         result: Dict[str, Any] = {}
 
-        # 东方财富：最新价、总市值、流通市值、行业、上市时间
+        # 东方财富：最新价、总市值、流通市值、行业、上市时间、总股本、流通股
         try:
-            df_em = ak.stock_individual_info_em(symbol=code)
+            with _no_proxy():
+                df_em = ak.stock_individual_info_em(symbol=code)
             if df_em is not None and not df_em.empty:
                 for _, row in df_em.iterrows():
                     result[str(row["item"])] = row["value"]
         except Exception as e:
-            logger.debug(f"stock_individual_info_em 失败: {e}")
+            logger.warning(f"stock_individual_info_em 失败: {e}")
 
         # 巨潮：公司全称、主营业务、法人、注册资本、经营范围、机构简介等
         try:
-            df_cn = ak.stock_profile_cninfo(symbol=code)
+            with _no_proxy():
+                df_cn = ak.stock_profile_cninfo(symbol=code)
             if df_cn is not None and not df_cn.empty:
                 row = df_cn.iloc[0]
                 field_map = {

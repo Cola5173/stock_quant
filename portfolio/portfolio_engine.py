@@ -14,7 +14,7 @@ import numpy as np
 from api.config import settings
 from indicator.indicators import calculate_KDJ, calculate_zx_trend
 from api.schemas.kline_constants import KLineConstants
-from utils.utils import _normalize_stock_code
+from api.utils.utils import _normalize_stock_code
 
 logger = logging.getLogger(__name__)
 
