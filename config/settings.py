@@ -2,7 +2,9 @@
 # @Time: 2025/12/7 02:31
 
 DATA_DIR = "data"
+RESOURCE_DIR = "resource"
 STOCK_CODE_FILE = "stock_code.csv"
+STOCK_NAMES_FILE = "resource/stock_names.csv"
 STRATEGY_DIR = "strategy"
 REFERENCE_STOCK = "sh.000001"
 

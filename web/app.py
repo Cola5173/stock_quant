@@ -17,7 +17,7 @@ STRATEGY_MAP = {
     "B1 (KDJ+知行趋势)": B1Strategy,
 }
 
-STOCK_NAMES_CSV = os.path.join(settings.DATA_DIR, "stock_names.csv")
+STOCK_NAMES_CSV = settings.STOCK_NAMES_FILE
 
 
 def _fetch_latest_kline(source: str):
@@ -183,6 +183,9 @@ def main():
         strategy_name = st.selectbox("策略", list(STRATEGY_MAP.keys()))
 
         stock_list = load_stock_list()
+        if not stock_list:
+            st.warning("股票列表为空，请先点击「拉取最新K线数据」或确认 data/stock_names.csv 存在")
+            return
         labels = [item["label"] for item in stock_list]
         selected_label = st.selectbox("股票", labels, index=0)
         stock_code = stock_list[labels.index(selected_label)]["code"]
