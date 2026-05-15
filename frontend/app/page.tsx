@@ -36,10 +36,12 @@ export default function HomePage() {
     onSuccess: (data) => setResult(data),
   });
 
-  const subtitle = params?.selectedStock
+  const subtitle = navActive === "backtest" && params?.selectedStock
     ? `${params.selectedStock.code}.${params.selectedStock.exchange} · ${params.selectedStock.name}`
     : undefined;
-  const dateRange = params ? `${params.start} ~ ${params.end}` : undefined;
+  const dateRange = navActive === "backtest" && params
+    ? `${params.start} ~ ${params.end}`
+    : undefined;
 
   return (
     <div className="flex flex-1 min-h-0">

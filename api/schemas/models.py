@@ -19,6 +19,20 @@ class HomeStats(BaseModel):
     data_source_count: int    # 支持的数据源数
 
 
+# ====== 数据拉取 ======
+class FetchStatus(BaseModel):
+    running: bool
+    source: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class FetchTriggerResponse(BaseModel):
+    started: bool
+    message: str
+
+
 # ====== K 线 ======
 class KlineBar(BaseModel):
     date: str          # YYYY-MM-DD
