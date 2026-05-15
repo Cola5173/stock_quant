@@ -92,6 +92,7 @@ class AkShareDataFetcher(DataFetcher):
         print(f"step 1.2: ----> 开始下载K线数据 [{start_date} ~ {end_date}]...")
         failed_count = 0
         success_count = 0
+        skipped_count = 0
 
         pbar = tqdm(sorted(stock_codes, key=_normalize_stock_code), desc="下载数据")
         for stock_code in pbar:
@@ -120,6 +121,7 @@ class AkShareDataFetcher(DataFetcher):
                 if not ranges:
                     suffix = "SH" if symbol.startswith("6") else "SZ"
                     tqdm.write(f"skip {symbol}.{suffix} local data already up to date")
+                    skipped_count += 1
                     continue
 
                 fetched = False
@@ -140,6 +142,7 @@ class AkShareDataFetcher(DataFetcher):
 
         print(f"step 1.3: ----> 下载完成！")
         print(f"  - 成功: {success_count} 只股票")
+        print(f"  - 跳过: {skipped_count} 只股票（本地已是最新）")
         print(f"  - 失败: {failed_count} 只股票")
 
     def _fetch_single_stock(self, symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
