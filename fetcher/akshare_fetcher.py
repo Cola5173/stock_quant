@@ -93,7 +93,7 @@ class AkShareDataFetcher(DataFetcher):
         failed_count = 0
         success_count = 0
 
-        for stock_code in tqdm(stock_codes, desc="下载数据"):
+        for stock_code in tqdm(sorted(stock_codes), desc="下载数据"):
             try:
                 symbol = _normalize_stock_code(stock_code)
 

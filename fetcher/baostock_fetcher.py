@@ -115,7 +115,7 @@ class BaoStockDataFetcher(DataFetcher):
             failed_count = 0
             success_count = 0
             index = 0
-            for stock_code in tqdm(stocks_to_download, desc="下载数据"):
+            for stock_code in tqdm(sorted(stocks_to_download), desc="下载数据"):
                 try:
                     index += 1
                     normalized_stock_code = _normalize_stock_code(stock_code)
