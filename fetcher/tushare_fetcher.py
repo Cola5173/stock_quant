@@ -158,6 +158,7 @@ class TushareDataFetcher(DataFetcher):
                         ranges.append((forward_start, ts_end))
 
                 if not ranges:
+                    tqdm.write(f"skip {_to_ts_code(symbol)} local data already up to date")
                     continue
 
                 fetched = False

@@ -118,6 +118,8 @@ class AkShareDataFetcher(DataFetcher):
                         ranges.append((forward_start, ak_end))
 
                 if not ranges:
+                    suffix = "SH" if symbol.startswith("6") else "SZ"
+                    tqdm.write(f"skip {symbol}.{suffix} local data already up to date")
                     continue
 
                 fetched = False
