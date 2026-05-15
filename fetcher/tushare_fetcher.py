@@ -135,22 +135,39 @@ class TushareDataFetcher(DataFetcher):
                 symbol = _normalize_stock_code(stock_code)
                 pbar.set_description(f"download {symbol} K line data")
 
+                ts_start_ts = pd.to_datetime(ts_start)
+                ts_end_ts = pd.to_datetime(ts_end)
                 existing_df = self._load_stock_data(symbol)
-                if not existing_df.empty:
-                    max_date = existing_df[KLineConstants.DATE].max()
-                    ts_end_ts = pd.to_datetime(ts_end)
-                    if max_date >= ts_end_ts:
-                        continue
-                    incremental_start = (max_date + timedelta(days=1)).strftime("%Y%m%d")
-                    df = self._fetch_single_stock(symbol, incremental_start, ts_end)
+
+                # 计算需要拉取的区间（可能 0~2 段）
+                ranges = []
+                if existing_df.empty:
+                    ranges.append((ts_start, ts_end))
                 else:
-                    df = self._fetch_single_stock(symbol, ts_start, ts_end)
+                    local_min = existing_df[KLineConstants.DATE].min()
+                    local_max = existing_df[KLineConstants.DATE].max()
+                    # 向前回填 [ts_start, local_min - 1天]
+                    if ts_start_ts < local_min:
+                        backfill_end = (local_min - timedelta(days=1)).strftime("%Y%m%d")
+                        ranges.append((ts_start, backfill_end))
+                    # 向后增量 [local_max + 1天, ts_end]
+                    if ts_end_ts > local_max:
+                        forward_start = (local_max + timedelta(days=1)).strftime("%Y%m%d")
+                        ranges.append((forward_start, ts_end))
 
-                if df is not None and not df.empty:
-                    self._save_stock_data(symbol, df)
+                if not ranges:
+                    continue
+
+                fetched = False
+                for r_start, r_end in ranges:
+                    df = self._fetch_single_stock(symbol, r_start, r_end)
+                    if df is not None and not df.empty:
+                        self._save_stock_data(symbol, df)
+                        fetched = True
+                    time.sleep(REQUEST_INTERVAL)
+
+                if fetched:
                     success_count += 1
-
-                time.sleep(REQUEST_INTERVAL)
 
             except Exception as e:
                 failed_count += 1
