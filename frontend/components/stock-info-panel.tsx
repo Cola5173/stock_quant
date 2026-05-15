@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Building2, Users, Phone, Globe, MapPin, Calendar, Banknote, TrendingUp, Layers } from "lucide-react";
@@ -103,9 +104,7 @@ export function StockInfoPanel({ code }: { code: string }) {
       <h3 className="text-sm font-semibold text-zinc-200 mb-3">个股信息</h3>
 
       {intro && intro !== "None" && (
-        <p className="text-xs text-zinc-400 leading-relaxed mb-4 pb-3 border-b border-zinc-800">
-          {String(intro).slice(0, 200)}{String(intro).length > 200 ? "…" : ""}
-        </p>
+        <IntroText text={String(intro)} />
       )}
 
       <div className="space-y-2.5">
@@ -122,6 +121,26 @@ export function StockInfoPanel({ code }: { code: string }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function IntroText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const limit = 80;
+  const needTruncate = text.length > limit;
+
+  return (
+    <div className="text-xs text-zinc-400 leading-relaxed mb-4 pb-3 border-b border-zinc-800">
+      <p>{expanded || !needTruncate ? text : `${text.slice(0, limit)}…`}</p>
+      {needTruncate && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="text-blue-400 hover:text-blue-300 mt-1"
+        >
+          {expanded ? "收起" : "展开"}
+        </button>
+      )}
     </div>
   );
 }

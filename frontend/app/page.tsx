@@ -20,11 +20,10 @@ function getDateRange(range: TimeRange): { start: string; end: string } {
   const end = new Date();
   const start = new Date();
   switch (range) {
-    case "3m": start.setMonth(end.getMonth() - 3); break;
+    case "quarter": start.setMonth(end.getMonth() - 3); break;
     case "6m": start.setMonth(end.getMonth() - 6); break;
     case "1y": start.setFullYear(end.getFullYear() - 1); break;
-    case "3y": start.setFullYear(end.getFullYear() - 3); break;
-    case "all": start.setFullYear(end.getFullYear() - 10); break;
+    case "custom": start.setFullYear(end.getFullYear() - 2); break;
   }
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
@@ -37,6 +36,7 @@ export default function HomePage() {
   const [chartStock, setChartStock] = useState<StockItem>(DEFAULT_INDEX);
   const [chartGranularity, setChartGranularity] = useState<Granularity>("day");
   const [chartRange, setChartRange] = useState<TimeRange>("1y");
+  const [nWaveEnabled, setNWaveEnabled] = useState(false);
 
   // 回测 tab 状态
   const [params, setParams] = useState<BacktestParams | null>(null);
@@ -86,21 +86,23 @@ export default function HomePage() {
 
           {/* K线图表 */}
           {navActive === "chart" && (
-            <div className="flex flex-col gap-4 h-full">
-              {/* 顶部工具栏 */}
-              <ChartToolbar
-                stock={chartStock}
-                bars={chartKlineQuery.data ?? []}
-                granularity={chartGranularity}
-                timeRange={chartRange}
-                onSelectStock={setChartStock}
-                onGranularityChange={setChartGranularity}
-                onTimeRangeChange={setChartRange}
-              />
+            <div className="grid grid-cols-[1fr_280px] gap-4 h-full">
+              {/* 左列：工具栏 + K线 */}
+              <div className="flex flex-col gap-4 min-h-0">
+                {/* 顶部工具栏 */}
+                <ChartToolbar
+                  stock={chartStock}
+                  bars={chartKlineQuery.data ?? []}
+                  granularity={chartGranularity}
+                  timeRange={chartRange}
+                  nWaveEnabled={nWaveEnabled}
+                  onSelectStock={setChartStock}
+                  onGranularityChange={setChartGranularity}
+                  onTimeRangeChange={setChartRange}
+                  onNWaveToggle={() => setNWaveEnabled((v) => !v)}
+                />
 
-              {/* 内容区：K线 + 个股信息 */}
-              <div className="grid grid-cols-[1fr_280px] gap-4 flex-1 min-h-0">
-                <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4 overflow-y-auto">
+                <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4 flex-1 min-h-0 overflow-y-auto">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-zinc-200">K 线走势</h3>
                     <span className="text-xs text-zinc-500">{chartStock.label}</span>
@@ -114,13 +116,14 @@ export default function HomePage() {
                     </div>
                   )}
                   {chartKlineQuery.data && chartKlineQuery.data.length > 0 && (
-                    <KlineChart bars={chartGranularity === "week" ? aggregateToWeekly(chartKlineQuery.data) : chartKlineQuery.data} />
+                    <KlineChart bars={chartGranularity === "week" ? aggregateToWeekly(chartKlineQuery.data) : chartKlineQuery.data} nWaveEnabled={nWaveEnabled} />
                   )}
                 </div>
+              </div>
 
-                <div className="overflow-y-auto h-full">
-                  <StockInfoPanel code={chartStock.code} />
-                </div>
+              {/* 右列：个股信息 */}
+              <div className="overflow-y-auto h-full">
+                <StockInfoPanel code={chartStock.code} />
               </div>
             </div>
           )}

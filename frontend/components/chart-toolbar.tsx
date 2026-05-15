@@ -5,7 +5,7 @@ import { StockSearchBar } from "./stock-search-bar";
 import type { StockItem, KlineBar } from "@/lib/types";
 
 type Granularity = "day" | "week";
-type TimeRange = "3m" | "6m" | "1y" | "3y" | "all";
+type TimeRange = "quarter" | "6m" | "1y" | "custom";
 
 const GRANULARITY_LABELS: { key: Granularity; label: string }[] = [
   { key: "day", label: "日" },
@@ -13,11 +13,10 @@ const GRANULARITY_LABELS: { key: Granularity; label: string }[] = [
 ];
 
 const RANGE_LABELS: { key: TimeRange; label: string }[] = [
-  { key: "3m", label: "3月" },
+  { key: "quarter", label: "季度" },
   { key: "6m", label: "半年" },
   { key: "1y", label: "1年" },
-  { key: "3y", label: "3年" },
-  { key: "all", label: "全部" },
+  { key: "custom", label: "自定义" },
 ];
 
 interface ChartToolbarProps {
@@ -25,14 +24,16 @@ interface ChartToolbarProps {
   bars: KlineBar[];
   granularity: Granularity;
   timeRange: TimeRange;
+  nWaveEnabled: boolean;
   onSelectStock: (stock: StockItem) => void;
   onGranularityChange: (g: Granularity) => void;
   onTimeRangeChange: (r: TimeRange) => void;
+  onNWaveToggle: () => void;
 }
 
 export type { Granularity, TimeRange };
 
-export function ChartToolbar({ stock, bars, granularity, timeRange, onSelectStock, onGranularityChange, onTimeRangeChange }: ChartToolbarProps) {
+export function ChartToolbar({ stock, bars, granularity, timeRange, nWaveEnabled, onSelectStock, onGranularityChange, onTimeRangeChange, onNWaveToggle }: ChartToolbarProps) {
   const quote = useMemo(() => {
     if (!bars || bars.length < 2) return null;
     const latest = bars[bars.length - 1];
@@ -99,6 +100,17 @@ export function ChartToolbar({ stock, bars, granularity, timeRange, onSelectStoc
             {label}
           </button>
         ))}
+        <span className="w-px h-4 bg-zinc-700 mx-1" />
+        <button
+          onClick={onNWaveToggle}
+          className={`px-2.5 py-1 text-xs rounded transition-colors ${
+            nWaveEnabled
+              ? "bg-blue-600 text-white"
+              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
+          }`}
+        >
+          N型波段
+        </button>
       </div>
     </div>
   );

@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { createChart, createSeriesMarkers, CandlestickSeries, HistogramSeries, type IChartApi, type Time } from "lightweight-charts";
+import { createChart, createSeriesMarkers, CandlestickSeries, HistogramSeries, LineSeries, type IChartApi, type Time } from "lightweight-charts";
 import type { KlineBar, TradeRecord } from "@/lib/types";
+import { detectNWave } from "@/lib/n-wave";
 
-export function KlineChart({ bars, trades = [] }: { bars: KlineBar[]; trades?: TradeRecord[] }) {
+export function KlineChart({ bars, trades = [], nWaveEnabled = false }: { bars: KlineBar[]; trades?: TradeRecord[]; nWaveEnabled?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
@@ -24,6 +25,9 @@ export function KlineChart({ bars, trades = [] }: { bars: KlineBar[]; trades?: T
       height: 400,
       timeScale: { borderColor: "#3f3f46", timeVisible: false },
       rightPriceScale: { borderColor: "#3f3f46" },
+      localization: {
+        dateFormat: "yyyy-MM-dd",
+      },
     });
     chartRef.current = chart;
 
@@ -74,6 +78,35 @@ export function KlineChart({ bars, trades = [] }: { bars: KlineBar[]; trades?: T
       );
     }
 
+    if (nWaveEnabled) {
+      const points = detectNWave(bars);
+      const uniquePoints = points.filter((p, i, arr) => i === 0 || p.date !== arr[i - 1].date);
+      if (uniquePoints.length >= 2) {
+        const nWaveSeries = chart.addSeries(LineSeries, {
+          color: "#f97316",
+          lineWidth: 2,
+          lineStyle: 2,
+          crosshairMarkerVisible: false,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        nWaveSeries.setData(
+          uniquePoints.map((p) => ({ time: p.date as Time, value: p.price }))
+        );
+
+        createSeriesMarkers(
+          nWaveSeries,
+          uniquePoints.map((p) => ({
+            time: p.date as Time,
+            position: p.type === "H" ? "aboveBar" : "belowBar",
+            color: "#f97316",
+            shape: p.type === "H" ? "circle" : "circle",
+            text: p.type,
+          }))
+        );
+      }
+    }
+
     chart.timeScale().fitContent();
 
     const ro = new ResizeObserver(() => {
@@ -88,7 +121,7 @@ export function KlineChart({ bars, trades = [] }: { bars: KlineBar[]; trades?: T
       chart.remove();
       chartRef.current = null;
     };
-  }, [bars, trades]);
+  }, [bars, trades, nWaveEnabled]);
 
   return <div ref={containerRef} className="w-full" />;
 }
