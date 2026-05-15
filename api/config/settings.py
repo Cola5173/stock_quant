@@ -13,7 +13,7 @@ def _abs(rel: str) -> str:
 
 # ====== API 服务（可被环境变量覆盖） ======
 API_HOST = _os.getenv("API_HOST", "127.0.0.1")
-API_PORT = int(_os.getenv("API_PORT", "8000"))
+API_PORT = int(_os.getenv("API_PORT", "7088"))
 
 
 DATA_DIR = _abs("data")
