@@ -4,7 +4,7 @@
 """
 import pandas as pd
 import numpy as np
-from model.kline_constants import KLineConstants
+from api.schemas.kline_constants import KLineConstants
 
 
 def calculate_KDJ(df: pd.DataFrame) -> dict:

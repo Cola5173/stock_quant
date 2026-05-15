@@ -10,7 +10,7 @@ import pandas as pd
 import mplfinance as mpf
 
 from api.config import settings
-from model.kline_constants import KLineConstants
+from api.schemas.kline_constants import KLineConstants
 from visualizer.panels import PanelRenderer, TrendLinePanel, KDJPanel
 
 logger = logging.getLogger(__name__)

@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import pandas as pd
 from api.config import settings
-from model.kline_constants import KLineConstants
+from api.schemas.kline_constants import KLineConstants
 
 
 class DataFetcher(ABC):

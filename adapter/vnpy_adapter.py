@@ -14,7 +14,7 @@ from vnpy.trader.object import BarData
 from vnpy.trader.database import get_database
 
 from api.config import settings
-from model.kline_constants import KLineConstants
+from api.schemas.kline_constants import KLineConstants
 from utils.utils import _normalize_stock_code
 
 logger = logging.getLogger(__name__)
