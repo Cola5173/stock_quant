@@ -47,9 +47,9 @@ export default function HomePage() {
           )}
 
           {navActive === "backtest" && (
-            <div className="grid grid-cols-[300px_1fr] gap-4 h-full max-w-[1600px]">
+            <div className="grid grid-cols-[300px_1fr] gap-4 h-full">
               {/* 左：参数 */}
-              <div className="overflow-y-auto pr-1">
+              <div className="overflow-y-auto">
                 <BacktestPanel
                   onSubmit={(req) => { setResult(null); backtest.mutate(req); }}
                   onParamsChange={setParams}
@@ -58,43 +58,41 @@ export default function HomePage() {
               </div>
 
               {/* 右：图表 */}
-              <div className="flex flex-col gap-4 min-w-0 overflow-y-auto pr-1">
+              <div className="flex flex-col gap-4 min-w-0 overflow-y-auto">
                 {backtest.isError && (
                   <div className="bg-red-950/50 border border-red-900 rounded-lg p-4 text-red-300 text-sm">
                     回测失败：{(backtest.error as Error).message}
                   </div>
                 )}
 
-                {/* K 线始终在最上方 */}
-                <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4 flex flex-col flex-1 min-h-[420px]">
+                {/* K 线 */}
+                <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-zinc-200">K 线走势</h3>
                     {params?.selectedStock && (
                       <span className="text-xs text-zinc-500">{params.selectedStock.label}</span>
                     )}
                   </div>
-                  <div className="flex-1 flex flex-col">
-                    {!params?.code && (
-                      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
-                        请在左侧选择股票
-                      </div>
-                    )}
-                    {params?.code && klineQuery.isPending && (
-                      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">加载中…</div>
-                    )}
-                    {params?.code && klineQuery.isError && (
-                      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm text-center px-4">
-                        未能从后端拉到数据
-                        <br />
-                        <span className="text-xs text-zinc-600 mt-1 block">
-                          {(klineQuery.error as Error)?.message}
-                        </span>
-                      </div>
-                    )}
-                    {klineQuery.data && klineQuery.data.length > 0 && (
-                      <KlineChart bars={klineQuery.data} trades={result?.trades ?? []} />
-                    )}
-                  </div>
+                  {!params?.code && (
+                    <div className="h-[400px] flex items-center justify-center text-zinc-500 text-sm">
+                      请在左侧选择股票
+                    </div>
+                  )}
+                  {params?.code && klineQuery.isPending && (
+                    <div className="h-[400px] flex items-center justify-center text-zinc-500 text-sm">加载中…</div>
+                  )}
+                  {params?.code && klineQuery.isError && (
+                    <div className="h-[400px] flex items-center justify-center text-zinc-500 text-sm text-center px-4">
+                      未能从后端拉到数据
+                      <br />
+                      <span className="text-xs text-zinc-600 mt-1 block">
+                        {(klineQuery.error as Error)?.message}
+                      </span>
+                    </div>
+                  )}
+                  {klineQuery.data && klineQuery.data.length > 0 && (
+                    <KlineChart bars={klineQuery.data} trades={result?.trades ?? []} />
+                  )}
                 </div>
 
                 {/* 回测结果：仅点击开始回测后显示 */}
