@@ -15,7 +15,7 @@ import pandas as pd
 from .fetcher import DataFetcher
 from model.kline_constants import KLineConstants
 from config import settings
-from config.tushare_client import pro, ts
+from .tushare_client import pro, ts
 from utils.utils import _normalize_stock_code
 
 logger = logging.getLogger(__name__)
