@@ -13,6 +13,7 @@ import { StrategyLibrary } from "@/components/strategy-library";
 import { HomePage as HomePanel } from "@/components/home-page";
 import { StockInfoPanel } from "@/components/stock-info-panel";
 import { StockSearchBar } from "@/components/stock-search-bar";
+import { SettingsPage } from "@/components/settings-page";
 import type { BacktestRequest, BacktestResponse, StockItem } from "@/lib/types";
 
 export default function HomePage() {
@@ -176,6 +177,11 @@ export default function HomePage() {
               <h2 className="text-2xl font-semibold text-zinc-300">选股</h2>
               <p className="mt-2 text-zinc-500">功能开发中…</p>
             </div>
+          )}
+
+          {/* 设置 */}
+          {navActive === "settings" && (
+            <SettingsPage />
           )}
         </main>
       </div>

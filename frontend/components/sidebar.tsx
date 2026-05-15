@@ -1,6 +1,6 @@
 "use client";
 
-import { LineChart, Search, Library, CandlestickChart, FlaskConical } from "lucide-react";
+import { LineChart, Search, Library, CandlestickChart, FlaskConical, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
@@ -11,7 +11,7 @@ const NAV_ITEMS = [
   { key: "library", label: "策略库", icon: Library },
 ] as const;
 
-export type NavKey = "home" | (typeof NAV_ITEMS)[number]["key"];
+export type NavKey = "home" | "settings" | (typeof NAV_ITEMS)[number]["key"];
 
 export function Sidebar({ active, onChange }: { active: NavKey; onChange: (k: NavKey) => void }) {
   return (
@@ -28,26 +28,41 @@ export function Sidebar({ active, onChange }: { active: NavKey; onChange: (k: Na
       >
         <LineChart className="w-6 h-6 text-white" />
       </button>
-      {NAV_ITEMS.map((item) => {
-        const Icon = item.icon;
-        const isActive = active === item.key;
-        return (
-          <button
-            key={item.key}
-            onClick={() => onChange(item.key)}
-            className={cn(
-              "w-14 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition-colors",
-              isActive
-                ? "bg-blue-600/20 text-blue-400"
-                : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60"
-            )}
-            title={item.label}
-          >
-            <Icon className="w-5 h-5" />
-            <span className="text-xs">{item.label}</span>
-          </button>
-        );
-      })}
+      <div className="flex-1 flex flex-col items-center gap-2">
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const isActive = active === item.key;
+          return (
+            <button
+              key={item.key}
+              onClick={() => onChange(item.key)}
+              className={cn(
+                "w-14 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition-colors",
+                isActive
+                  ? "bg-blue-600/20 text-blue-400"
+                  : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60"
+              )}
+              title={item.label}
+            >
+              <Icon className="w-5 h-5" />
+              <span className="text-xs">{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <button
+        onClick={() => onChange("settings")}
+        className={cn(
+          "w-14 h-14 rounded-lg flex flex-col items-center justify-center gap-1 transition-colors",
+          active === "settings"
+            ? "bg-blue-600/20 text-blue-400"
+            : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60"
+        )}
+        title="设置"
+      >
+        <Settings className="w-5 h-5" />
+        <span className="text-xs">设置</span>
+      </button>
     </aside>
   );
 }
