@@ -11,14 +11,7 @@ import { EquityChart } from "@/components/equity-chart";
 import { StatsCards, TradesTable } from "@/components/results";
 import { StrategyLibrary } from "@/components/strategy-library";
 import { HomePage as HomePanel } from "@/components/home-page";
-import type { BacktestRequest, BacktestResponse, BacktestStats } from "@/lib/types";
-
-const EMPTY_STATS: BacktestStats = {
-  total_return: 0,
-  max_drawdown: 0,
-  sharpe_ratio: 0,
-  total_trade_count: 0,
-};
+import type { BacktestRequest, BacktestResponse } from "@/lib/types";
 
 export default function HomePage() {
   const [navActive, setNavActive] = useNav();
@@ -54,7 +47,7 @@ export default function HomePage() {
           )}
 
           {navActive === "backtest" && (
-            <div className="grid grid-cols-[300px_1fr] gap-5 h-full max-w-[1600px] mx-auto">
+            <div className="grid grid-cols-[300px_1fr] gap-4 h-full max-w-[1600px]">
               {/* 左：参数 */}
               <div className="overflow-y-auto pr-1">
                 <BacktestPanel
@@ -65,15 +58,14 @@ export default function HomePage() {
               </div>
 
               {/* 右：图表 */}
-              <div className="flex flex-col gap-5 min-w-0 overflow-y-auto pr-1">
-                <StatsCards stats={result?.stats ?? EMPTY_STATS} />
-
+              <div className="flex flex-col gap-4 min-w-0 overflow-y-auto pr-1">
                 {backtest.isError && (
                   <div className="bg-red-950/50 border border-red-900 rounded-lg p-4 text-red-300 text-sm">
                     回测失败：{(backtest.error as Error).message}
                   </div>
                 )}
 
+                {/* K 线始终在最上方 */}
                 <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4 flex flex-col flex-1 min-h-[420px]">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-zinc-200">K 线走势</h3>
@@ -104,6 +96,9 @@ export default function HomePage() {
                     )}
                   </div>
                 </div>
+
+                {/* 回测结果：仅点击开始回测后显示 */}
+                {result && <StatsCards stats={result.stats} />}
 
                 {result && result.equity_curve.length > 0 && (
                   <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4">
