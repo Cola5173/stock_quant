@@ -101,21 +101,30 @@ class DataFetcher(ABC):
     def _get_all_stock_codes(self) -> Set[str]:
         """
         获取所有股票代码列表
-        从 stock_code.csv 文件中读取所有股票代码
-        :return: 股票代码集合
+        优先从 stock_names.csv 读取（数据更全），fallback 到 stock_code.csv
+        :return: 股票代码集合（纯数字格式）
         """
         stock_codes = set()
+
+        if os.path.exists(settings.STOCK_NAMES_FILE):
+            try:
+                df = pd.read_csv(settings.STOCK_NAMES_FILE, dtype=str, encoding='utf-8-sig')
+                for _, row in df.iterrows():
+                    code = str(row["symbol"]).strip()
+                    if code:
+                        stock_codes.add(code)
+                return stock_codes
+            except Exception as e:
+                print(f"读取 stock_names.csv 失败，尝试 stock_code.csv: {e}")
 
         if not os.path.exists(settings.STOCK_CODE_FILE):
             print(f"股票代码文件不存在: {settings.STOCK_CODE_FILE}")
             return stock_codes
 
         try:
-            # 读取CSV文件，没有列名，每行一个股票代码
             with open(settings.STOCK_CODE_FILE, 'r', encoding='utf-8-sig') as f:
                 for line in f:
                     code = line.strip()
-                    # 跳过空行
                     if code:
                         stock_codes.add(code)
         except Exception as e:
