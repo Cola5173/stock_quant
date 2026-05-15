@@ -1,0 +1,25 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "7088:7088"
+    volumes:
+      - ../data:/app/data
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=7088
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    environment:
+      - NEXT_PUBLIC_API_BASE=http://api:7088
+    restart: unless-stopped

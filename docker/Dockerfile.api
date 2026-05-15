@@ -1,0 +1,26 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY api/ api/
+COPY adapter/ adapter/
+COPY backtest/ backtest/
+COPY indicator/ indicator/
+COPY model/ model/
+COPY portfolio/ portfolio/
+COPY resource/ resource/
+COPY scanner/ scanner/
+COPY scheduler/ scheduler/
+COPY strategy/ strategy/
+COPY utils/ utils/
+COPY visualizer/ visualizer/
+COPY llm_scorer/ llm_scorer/
+
+RUN mkdir -p data
+
+EXPOSE 7088
+
+CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "7088"]
