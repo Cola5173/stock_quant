@@ -1,10 +1,11 @@
 """股票相关路由"""
-from typing import List
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from api.schemas.models import StockItem, KlineBar
 from api.services.stock_service import list_stocks
 from api.services.kline_service import load_kline
+from api.services.stock_info_service import get_stock_info
 
 router = APIRouter(prefix="/api/stocks", tags=["stocks"])
 
@@ -29,3 +30,12 @@ def get_kline(
     if not bars:
         raise HTTPException(status_code=404, detail=f"未找到 {code} 在 [{start}, {end}] 的数据")
     return bars
+
+
+@router.get("/{code}/info")
+def get_info(code: str) -> Dict[str, Any]:
+    """个股详细信息（雪球）"""
+    info = get_stock_info(code)
+    if not info:
+        raise HTTPException(status_code=404, detail=f"未找到 {code} 的个股信息")
+    return info

@@ -11,6 +11,7 @@ import { EquityChart } from "@/components/equity-chart";
 import { StatsCards, TradesTable } from "@/components/results";
 import { StrategyLibrary } from "@/components/strategy-library";
 import { HomePage as HomePanel } from "@/components/home-page";
+import { StockInfoPanel } from "@/components/stock-info-panel";
 import type { BacktestRequest, BacktestResponse } from "@/lib/types";
 
 export default function HomePage() {
@@ -47,7 +48,7 @@ export default function HomePage() {
           )}
 
           {navActive === "backtest" && (
-            <div className="grid grid-cols-[300px_1fr] gap-4 h-full">
+            <div className="grid grid-cols-[300px_1fr_280px] gap-4 h-full">
               {/* 左：参数 */}
               <div className="overflow-y-auto">
                 <BacktestPanel
@@ -106,6 +107,11 @@ export default function HomePage() {
                 )}
 
                 {result && <TradesTable trades={result.trades} />}
+              </div>
+
+              {/* 右：个股信息 */}
+              <div className="overflow-y-auto h-full">
+                <StockInfoPanel code={params?.code ?? ""} />
               </div>
             </div>
           )}

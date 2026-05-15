@@ -23,6 +23,8 @@ export const api = {
   stocks: () => http<StockItem[]>("/api/stocks"),
   kline: (code: string, start: string, end: string) =>
     http<KlineBar[]>(`/api/stocks/${code}/kline?start=${start}&end=${end}`),
+  stockInfo: (code: string) =>
+    http<Record<string, string | number | null>>(`/api/stocks/${code}/info`),
   strategies: () => http<StrategyItem[]>("/api/strategies"),
   backtest: (req: BacktestRequest) =>
     http<BacktestResponse>("/api/backtest", {
