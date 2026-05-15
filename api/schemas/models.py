@@ -12,6 +12,13 @@ class StockItem(BaseModel):
     exchange: str      # SH / SZ
 
 
+# ====== 统计概览 ======
+class HomeStats(BaseModel):
+    stock_count: int          # resource/stock_code.csv 行数
+    strategy_count: int       # 已注册策略数
+    data_source_count: int    # 支持的数据源数
+
+
 # ====== K 线 ======
 class KlineBar(BaseModel):
     date: str          # YYYY-MM-DD

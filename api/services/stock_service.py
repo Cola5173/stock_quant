@@ -7,13 +7,20 @@ import pandas as pd
 from config import settings
 from api.schemas.models import StockItem
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _resolve(path: str) -> str:
+    return path if os.path.isabs(path) else os.path.join(PROJECT_ROOT, path)
+
 
 def list_stocks() -> List[StockItem]:
     """从 resource/stock_names.csv 读取股票列表"""
-    if not os.path.exists(settings.STOCK_NAMES_FILE):
+    csv_path = _resolve(settings.STOCK_NAMES_FILE)
+    if not os.path.exists(csv_path):
         return []
 
-    df = pd.read_csv(settings.STOCK_NAMES_FILE, dtype=str, encoding="utf-8-sig")
+    df = pd.read_csv(csv_path, dtype=str, encoding="utf-8-sig")
     items: List[StockItem] = []
     for _, row in df.iterrows():
         code = str(row["symbol"]).strip()

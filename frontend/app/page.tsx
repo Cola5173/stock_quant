@@ -10,6 +10,7 @@ import { KlineChart } from "@/components/kline-chart";
 import { EquityChart } from "@/components/equity-chart";
 import { StatsCards, TradesTable } from "@/components/results";
 import { StrategyLibrary } from "@/components/strategy-library";
+import { HomePage as HomePanel } from "@/components/home-page";
 import type { BacktestRequest, BacktestResponse, BacktestStats } from "@/lib/types";
 
 const EMPTY_STATS: BacktestStats = {
@@ -46,8 +47,12 @@ export default function HomePage() {
       <div className="flex-1 flex flex-col min-w-0">
         <Header subtitle={subtitle} dateRange={dateRange} />
         <main className="flex-1 overflow-hidden p-6">
-          {navActive === "backtest" ? (
-            <div className="grid grid-cols-[300px_1fr_280px] gap-5 h-full max-w-[1800px] mx-auto">
+          {navActive === "home" && (
+            <HomePanel onNavigate={setNavActive} />
+          )}
+
+          {navActive === "backtest" && (
+            <div className="grid grid-cols-[300px_1fr] gap-5 h-full max-w-[1600px] mx-auto">
               {/* 左：参数 */}
               <div className="overflow-y-auto pr-1">
                 <BacktestPanel
@@ -57,7 +62,7 @@ export default function HomePage() {
                 />
               </div>
 
-              {/* 中：图表 */}
+              {/* 右：图表 */}
               <div className="flex flex-col gap-5 min-w-0 overflow-y-auto pr-1">
                 <StatsCards stats={result?.stats ?? EMPTY_STATS} />
 
@@ -107,13 +112,16 @@ export default function HomePage() {
 
                 {result && <TradesTable trades={result.trades} />}
               </div>
-
-              {/* 右：策略库 */}
-              <div className="min-h-0">
-                <StrategyLibrary activeKey={params?.strategy} />
-              </div>
             </div>
-          ) : (
+          )}
+
+          {navActive === "library" && (
+            <div className="max-w-3xl mx-auto h-full">
+              <StrategyLibrary />
+            </div>
+          )}
+
+          {navActive === "screening" && (
             <div className="max-w-2xl mx-auto mt-20 text-center">
               <h2 className="text-2xl font-semibold text-zinc-300">选股</h2>
               <p className="mt-2 text-zinc-500">功能开发中…</p>

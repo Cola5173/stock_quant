@@ -7,10 +7,15 @@ import pandas as pd
 from config import settings
 from api.schemas.models import KlineBar
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 def load_kline(stock_code: str, start: str, end: str) -> List[KlineBar]:
     """加载单股 K 线数据。start/end 为 YYYY-MM-DD"""
-    csv_path = os.path.join(settings.DATA_DIR, f"{stock_code}.csv")
+    data_dir = settings.DATA_DIR
+    if not os.path.isabs(data_dir):
+        data_dir = os.path.join(PROJECT_ROOT, data_dir)
+    csv_path = os.path.join(data_dir, f"{stock_code}.csv")
     if not os.path.exists(csv_path):
         return []
 
