@@ -5,12 +5,14 @@ import { api } from "@/lib/api";
 import { Building2, Users, Phone, Globe, MapPin, Calendar, Banknote, TrendingUp, Layers } from "lucide-react";
 
 const INFO_FIELDS = [
-  // 行情数据（来自东方财富 stock_individual_info_em）
+  // 行情数据（来自 Tushare daily_basic）
   { key: "最新", label: "最新价", icon: TrendingUp },
   { key: "总市值", label: "总市值", icon: Banknote, format: "capital" },
   { key: "流通市值", label: "流通市值", icon: Banknote, format: "capital" },
   { key: "总股本", label: "总股本", icon: Layers, format: "shares" },
   { key: "流通股", label: "流通股", icon: Layers, format: "shares" },
+  { key: "pe", label: "市盈率(PE)" },
+  { key: "pb", label: "市净率(PB)" },
   { key: "行业", label: "所属行业" },
   { key: "上市时间", label: "上市时间", icon: Calendar, format: "yyyymmdd" },
   // 公司基本信息（来自巨潮 stock_profile_cninfo）
