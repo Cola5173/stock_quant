@@ -19,7 +19,7 @@ export interface BacktestParams {
 const PERIOD_OPTIONS = [
   { key: "1y", label: "近1年", years: 1 },
   { key: "2y", label: "近2年", years: 2 },
-  { key: "3y", label: "近3年", years: 3 },
+  { key: "custom", label: "自定义", years: 0 },
 ] as const;
 
 export function BacktestPanel({
@@ -45,8 +45,10 @@ export function BacktestPanel({
   const [stockSearch, setStockSearch] = useState("");
   const [stockOpen, setStockOpen] = useState(false);
   const [selectedStock, setSelectedStock] = useState<StockItem | null>(null);
-  const [period, setPeriod] = useState<"1y" | "2y" | "3y">("1y");
+  const [period, setPeriod] = useState<"1y" | "2y" | "custom">("1y");
   const [capitalW, setCapitalW] = useState(10);
+  const [customStart, setCustomStart] = useState(yearsAgo(3));
+  const [customEnd, setCustomEnd] = useState(today);
 
   const filteredStocks = useMemo(() => {
     if (!stockSearch) return stocks.slice(0, 30);
@@ -57,9 +59,12 @@ export function BacktestPanel({
   }, [stocks, stockSearch]);
 
   const { start, end } = useMemo(() => {
+    if (period === "custom") {
+      return { start: customStart, end: customEnd };
+    }
     const years = PERIOD_OPTIONS.find((p) => p.key === period)?.years ?? 1;
     return { start: yearsAgo(years), end: today };
-  }, [period, today]);
+  }, [period, today, customStart, customEnd]);
 
   const code = selectedStock?.code ?? "";
 
@@ -136,7 +141,22 @@ export function BacktestPanel({
             </button>
           ))}
         </div>
-        <div className="mt-1 text-xs text-zinc-500">{start} ~ {end}</div>
+        {period === "custom" && (
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+            />
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        )}
       </div>
 
       <div>
