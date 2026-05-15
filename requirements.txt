@@ -14,6 +14,8 @@ apscheduler>=3.10.0          # 定时任务调度
 chinese-calendar>=1.9.0      # 中国节假日判断
 Pillow>=10.0.0               # 图片拼接
 pyyaml>=6.0                  # 配置文件解析
-streamlit>=1.30.0            # Web 界面
+streamlit>=1.30.0            # Web 界面（已废弃，保留兼容）
 plotly>=5.18.0               # 交互式图表
+fastapi>=0.115.0             # REST API 后端
+uvicorn[standard]>=0.30.0    # ASGI 服务器
 

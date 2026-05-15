@@ -65,7 +65,7 @@ secrets/
 
 # 日志文件（保留目录结构）
 *.log
-logs/*
+logs/
 !logs/.gitkeep
 *.log.*
 
