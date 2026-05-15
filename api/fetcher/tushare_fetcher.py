@@ -238,3 +238,56 @@ class TushareDataFetcher(DataFetcher):
 
         df = df.sort_values(KLineConstants.DATE).reset_index(drop=True)
         return df
+
+    def fetch_index(self, ts_code: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+        """
+        获取指数日线数据
+        :param ts_code: 指数代码（000001.SH / 399006.SZ / 883957.TI）
+        :param start_date: YYYYMMDD
+        :param end_date: YYYYMMDD
+        """
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                if ts_code.endswith(".TI"):
+                    # 同花顺指数
+                    df = self.pro.ths_daily(
+                        ts_code=ts_code,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                else:
+                    # 上证 / 深证 指数
+                    df = self.ts.pro_bar(
+                        api=self.pro,
+                        ts_code=ts_code,
+                        asset="I",
+                        start_date=start_date,
+                        end_date=end_date,
+                        freq="D",
+                    )
+        except Exception as e:
+            logger.warning(f"指数 {ts_code} 获取失败: {e}")
+            return None
+
+        if df is None or df.empty:
+            return None
+
+        df = df.rename(columns={
+            "trade_date": KLineConstants.DATE,
+            "open": KLineConstants.OPEN,
+            "high": KLineConstants.HIGH,
+            "low": KLineConstants.LOW,
+            "close": KLineConstants.CLOSE,
+            "pre_close": KLineConstants.PRECLOSE,
+            "vol": KLineConstants.VOLUME,
+            "amount": "amount",
+            "pct_chg": "pctChg",
+            "change": "change",
+        })
+
+        df[KLineConstants.DATE] = pd.to_datetime(df[KLineConstants.DATE], format="%Y%m%d")
+        df["code"] = ts_code
+        df[KLineConstants.STOCK_CODE] = ts_code
+
+        df = df.sort_values(KLineConstants.DATE).reset_index(drop=True)
+        return df
