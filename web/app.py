@@ -171,7 +171,7 @@ def build_equity_chart(daily_df: pd.DataFrame, capital: float) -> go.Figure:
     return fig
 def main():
     st.set_page_config(page_title="A 股量化回测", layout="wide", page_icon="📈")
-    st.title("A 股量化回测系统")
+    st.title("Cola 回测系统")
 
     with st.sidebar:
         st.markdown("**数据管理**")
@@ -212,7 +212,8 @@ def main():
             with col2:
                 end_date = st.date_input("结束", value=today)
 
-        capital = st.number_input("初始资金", value=100000, step=10000, min_value=10000)
+        capital_w = st.number_input("初始资金 (万)", value=10, step=1, min_value=1)
+        capital = capital_w * 10000
         run_btn = st.button("开始回测", type="primary", use_container_width=True)
 
     if run_btn:
