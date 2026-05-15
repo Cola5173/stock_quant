@@ -23,7 +23,7 @@ def get_status() -> FetchStatus:
         return FetchStatus(**_state)
 
 
-def start_fetch_latest(source: str = "tushare") -> bool:
+def start_fetch_latest(source: str = "akshare") -> bool:
     """
     启动后台拉取任务。如果已有任务在跑则返回 False。
     拉取从今天往回 7 天（足以覆盖周末 + 节假日）到今天。
@@ -64,12 +64,12 @@ def _run_fetch(source: str):
 
 def _create_fetcher(source: str):
     if source == "tushare":
-        from fetcher.tushare_fetcher import TushareDataFetcher
+        from api.fetcher.tushare_fetcher import TushareDataFetcher
         return TushareDataFetcher()
     if source == "akshare":
-        from fetcher.akshare_fetcher import AkShareDataFetcher
+        from api.fetcher.akshare_fetcher import AkShareDataFetcher
         return AkShareDataFetcher()
     if source == "baostock":
-        from fetcher.baostock_fetcher import BaoStockDataFetcher
+        from api.fetcher.baostock_fetcher import BaoStockDataFetcher
         return BaoStockDataFetcher()
     raise ValueError(f"未知数据源: {source}")

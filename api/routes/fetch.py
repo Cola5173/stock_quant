@@ -8,7 +8,7 @@ router = APIRouter(prefix="/api/fetch", tags=["fetch"])
 
 
 @router.post("/latest", response_model=FetchTriggerResponse)
-def trigger_fetch(source: str = Query("tushare", description="数据源")):
+def trigger_fetch(source: str = Query("akshare", description="数据源")):
     """触发后台拉取任务（异步），增量拉取每只股票到今天的最新数据"""
     started = start_fetch_latest(source)
     if not started:

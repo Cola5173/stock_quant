@@ -1,15 +1,25 @@
 # @Author: cola5173
 # @Time: 2025/12/7 02:31
+import os as _os
 
-DATA_DIR = "data"
-RESOURCE_DIR = "resource"
-STOCK_CODE_FILE = "resource/stock_code.csv"
-STOCK_NAMES_FILE = "resource/stock_names.csv"
-STRATEGY_DIR = "strategy"
+# 项目根目录（settings.py 所在目录的上一级）
+PROJECT_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+
+
+def _abs(rel: str) -> str:
+    """将相对路径解析为基于项目根的绝对路径"""
+    return _os.path.join(PROJECT_ROOT, rel)
+
+
+DATA_DIR = _abs("data")
+RESOURCE_DIR = _abs("resource")
+STOCK_CODE_FILE = _abs("resource/stock_code.csv")
+STOCK_NAMES_FILE = _abs("resource/stock_names.csv")
+STRATEGY_DIR = _abs("strategy")
 REFERENCE_STOCK = "sh.000001"
 
 # vnpy 数据库配置
-VNPY_DB_PATH = "data/vnpy_db.sqlite"
+VNPY_DB_PATH = _abs("data/vnpy_db.sqlite")
 
 # 回测默认参数
 BACKTEST_CONFIG = {
@@ -30,19 +40,19 @@ FEE_CONFIG = {
 }
 
 # 可视化配置
-REPORT_DIR = "reports"
+REPORT_DIR = _abs("reports")
 PLOT_STYLE = "seaborn-v0_8-darkgrid"
 
 # 输出目录
-OUTPUT_DIR = "output"
-CANDIDATES_DIR = "output/candidates"
-CHARTS_DIR = "output/charts"
-SCORES_DIR = "output/scores"
-SIGNALS_DIR = "output/signals"
-PORTFOLIO_DIR = "output/portfolio"
+OUTPUT_DIR = _abs("output")
+CANDIDATES_DIR = _abs("output/candidates")
+CHARTS_DIR = _abs("output/charts")
+SCORES_DIR = _abs("output/scores")
+SIGNALS_DIR = _abs("output/signals")
+PORTFOLIO_DIR = _abs("output/portfolio")
 
 # 日志目录
-LOG_DIR = "logs"
+LOG_DIR = _abs("logs")
 
 # 全市场股票列表缓存
-STOCK_LIST_CACHE = "data/stock_list.csv"
+STOCK_LIST_CACHE = _abs("data/stock_list.csv")

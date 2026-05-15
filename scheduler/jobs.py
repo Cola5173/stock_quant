@@ -74,13 +74,13 @@ def daily_job(strategy: str = "b1", source: str = "akshare"):
 def _step_fetch_data(date: str, source: str):
     """拉取最新数据"""
     if source == "akshare":
-        from fetcher.akshare_fetcher import AkShareDataFetcher
+        from api.fetcher.akshare_fetcher import AkShareDataFetcher
         fetcher = AkShareDataFetcher()
     elif source == "tushare":
-        from fetcher.tushare_fetcher import TushareDataFetcher
+        from api.fetcher.tushare_fetcher import TushareDataFetcher
         fetcher = TushareDataFetcher()
     else:
-        from fetcher.baostock_fetcher import BaoStockDataFetcher
+        from api.fetcher.baostock_fetcher import BaoStockDataFetcher
         fetcher = BaoStockDataFetcher()
 
     fetcher.fetch(start_date=date, end_date=date)

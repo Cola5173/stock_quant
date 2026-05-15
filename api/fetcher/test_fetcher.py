@@ -2,14 +2,15 @@
 Fetcher 数据下载测试
 支持 tushare / akshare / baostock 三种数据源
 用法：
-    python fetcher/test_fetcher.py --source tushare --symbol 600000 --start 2025-01-01 --end 2025-05-15
-    python fetcher/test_fetcher.py --source tushare --start 2026-01-01  (不传 --symbol 则拉取全量)
-    python fetcher/test_fetcher.py --source akshare --symbol 000001
-    python fetcher/test_fetcher.py --list  (仅获取全市场股票列表)
+    python api/fetcher/test_fetcher.py --source tushare --symbol 600000 --start 2025-01-01 --end 2025-05-15
+    python api/fetcher/test_fetcher.py --source tushare --start 2026-01-01  (不传 --symbol 则拉取全量)
+    python api/fetcher/test_fetcher.py --source akshare --symbol 000001
+    python api/fetcher/test_fetcher.py --list  (仅获取全市场股票列表)
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 项目根（test_fetcher.py 在 api/fetcher/，向上两级）
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import argparse
 from datetime import datetime, timedelta
@@ -89,13 +90,13 @@ def _print_csv_result(symbol: str):
 
 def _create_fetcher(source: str):
     if source == "tushare":
-        from fetcher.tushare_fetcher import TushareDataFetcher
+        from api.fetcher.tushare_fetcher import TushareDataFetcher
         return TushareDataFetcher()
     elif source == "akshare":
-        from fetcher.akshare_fetcher import AkShareDataFetcher
+        from api.fetcher.akshare_fetcher import AkShareDataFetcher
         return AkShareDataFetcher()
     else:
-        from fetcher.baostock_fetcher import BaoStockDataFetcher
+        from api.fetcher.baostock_fetcher import BaoStockDataFetcher
         return BaoStockDataFetcher()
 
 
