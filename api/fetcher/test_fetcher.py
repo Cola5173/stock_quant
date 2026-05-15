@@ -57,7 +57,16 @@ def main():
         print(f"\n[测试3] 下载 {args.symbol} K线数据")
         fetch_start = start_date.replace("-", "")
         fetch_end = end_date.replace("-", "")
-        df = fetcher._fetch_single_stock(args.symbol, fetch_start, fetch_end)
+
+        if args.symbol.startswith("idx_"):
+            # 指数：idx_000001_SH → 000001.SH
+            ts_code = args.symbol[4:].replace("_", ".")
+            from api.fetcher.tushare_fetcher import TushareDataFetcher
+            ts_fetcher = TushareDataFetcher()
+            df = ts_fetcher.fetch_index(ts_code, fetch_start, fetch_end)
+        else:
+            df = fetcher._fetch_single_stock(args.symbol, fetch_start, fetch_end)
+
         if df is not None and not df.empty:
             fetcher._save_stock_data(args.symbol, df)
             print(f"  下载成功: {len(df)} 条记录")
