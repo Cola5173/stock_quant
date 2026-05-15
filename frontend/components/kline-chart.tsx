@@ -24,7 +24,8 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false }: { bars: 
       width: containerRef.current.clientWidth,
       height: 400,
       timeScale: { borderColor: "#3f3f46", timeVisible: false },
-      rightPriceScale: { borderColor: "#3f3f46" },
+      rightPriceScale: { visible: false },
+      leftPriceScale: { visible: true, borderColor: "#3f3f46" },
       localization: {
         dateFormat: "yyyy-MM-dd",
       },
@@ -37,6 +38,7 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false }: { bars: 
       borderVisible: false,
       wickUpColor: "#ef4444",
       wickDownColor: "#22c55e",
+      priceScaleId: "left",
     });
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
