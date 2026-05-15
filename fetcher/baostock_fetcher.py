@@ -213,6 +213,18 @@ class BaoStockDataFetcher(DataFetcher):
 
         return stocks_to_download
 
+    def _fetch_single_stock(self, symbol: str, start_date: str,
+                            end_date: str) -> Optional[pd.DataFrame]:
+        """
+        统一接口：获取单只股票日线数据
+        :param symbol: 纯数字代码（如 600000）
+        :param start_date: YYYYMMDD
+        :param end_date: YYYYMMDD
+        """
+        sd = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:8]}"
+        ed = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+        return self.get_stock_data(symbol, sd, ed)
+
     def get_stock_data(self,
                        stock_code: str,
                        start_date: Optional[str] = None,

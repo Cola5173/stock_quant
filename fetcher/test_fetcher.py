@@ -33,7 +33,8 @@ def main():
     print(f"区间: {start_date} ~ {end_date}")
     print("=" * 50)
 
-    fetcher = _create_fetcher(args.source)
+    source = args.source
+    fetcher = _create_fetcher(source)
 
     # 测试1: 获取最近交易日
     print("\n[测试1] 获取最近交易日")
@@ -50,7 +51,14 @@ def main():
 
     # 测试3: 下载单只股票数据
     print(f"\n[测试3] 下载 {args.symbol} K线数据")
-    fetcher.fetch(start_date=start_date, end_date=end_date)
+    fetch_start = start_date.replace("-", "")
+    fetch_end = end_date.replace("-", "")
+    df = fetcher._fetch_single_stock(args.symbol, fetch_start, fetch_end)
+    if df is not None and not df.empty:
+        fetcher._save_stock_data(args.symbol, df)
+        print(f"  下载成功: {len(df)} 条记录")
+    else:
+        print(f"  未获取到数据")
 
     # 验证下载结果
     csv_path = os.path.join("data", f"{args.symbol}.csv")
