@@ -8,7 +8,7 @@ import logging
 import os
 from typing import List
 
-from config import settings
+from api.config import settings
 from llm_scorer.clients.base import LLMClient
 from llm_scorer.prompts import STAGE1_PROMPT, STAGE2_PROMPT
 

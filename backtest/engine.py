@@ -8,7 +8,7 @@ from typing import Type, Optional
 from vnpy_ctastrategy.backtesting import BacktestingEngine, OptimizationSetting
 from vnpy.trader.constant import Interval
 
-from config import settings
+from api.config import settings
 
 
 class BacktestRunner:

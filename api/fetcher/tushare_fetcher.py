@@ -14,7 +14,7 @@ import pandas as pd
 
 from .fetcher import DataFetcher
 from model.kline_constants import KLineConstants
-from config import settings
+from api.config import settings
 from .tushare_client import pro, ts
 from utils.utils import _normalize_stock_code
 

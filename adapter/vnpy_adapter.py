@@ -13,7 +13,7 @@ from vnpy.trader.constant import Exchange, Interval
 from vnpy.trader.object import BarData
 from vnpy.trader.database import get_database
 
-from config import settings
+from api.config import settings
 from model.kline_constants import KLineConstants
 from utils.utils import _normalize_stock_code
 

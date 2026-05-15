@@ -9,7 +9,7 @@ from vnpy_ctastrategy import CtaTemplate, StopOrder, BarGenerator, ArrayManager
 from vnpy.trader.object import BarData, TickData, TradeData, OrderData
 
 from indicator.indicators import IndicatorCalculator
-from config import settings
+from api.config import settings
 
 
 class BaseStrategy(CtaTemplate):

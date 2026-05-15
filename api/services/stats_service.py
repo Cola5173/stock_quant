@@ -1,7 +1,7 @@
 """首页统计概览：股票数 / 策略数 / 数据源数"""
 import os
 
-from config import settings
+from api.config import settings
 from api.schemas.models import HomeStats
 from api.services.backtest_service import STRATEGY_REGISTRY
 

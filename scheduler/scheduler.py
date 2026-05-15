@@ -8,7 +8,7 @@ import signal
 import sys
 import time
 
-from config import settings
+from api.config import settings
 
 logger = logging.getLogger(__name__)
 

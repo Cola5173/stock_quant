@@ -10,7 +10,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from vnpy_ctastrategy.backtesting import BacktestingEngine
-from config import settings
+from api.config import settings
 
 
 class BacktestReporter:

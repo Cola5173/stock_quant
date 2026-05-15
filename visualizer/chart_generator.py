@@ -9,7 +9,7 @@ from typing import List, Optional
 import pandas as pd
 import mplfinance as mpf
 
-from config import settings
+from api.config import settings
 from model.kline_constants import KLineConstants
 from visualizer.panels import PanelRenderer, TrendLinePanel, KDJPanel
 

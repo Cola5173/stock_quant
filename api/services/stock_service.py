@@ -4,7 +4,7 @@ from typing import List
 
 import pandas as pd
 
-from config import settings
+from api.config import settings
 from api.schemas.models import StockItem
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

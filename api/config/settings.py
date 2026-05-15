@@ -2,13 +2,18 @@
 # @Time: 2025/12/7 02:31
 import os as _os
 
-# 项目根目录（settings.py 所在目录的上一级）
-PROJECT_ROOT = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+# 项目根目录（settings.py 在 api/config/，向上三级到项目根）
+PROJECT_ROOT = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 
 
 def _abs(rel: str) -> str:
     """将相对路径解析为基于项目根的绝对路径"""
     return _os.path.join(PROJECT_ROOT, rel)
+
+
+# ====== API 服务（可被环境变量覆盖） ======
+API_HOST = _os.getenv("API_HOST", "127.0.0.1")
+API_PORT = int(_os.getenv("API_PORT", "8000"))
 
 
 DATA_DIR = _abs("data")

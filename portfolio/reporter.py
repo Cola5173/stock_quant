@@ -10,7 +10,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from config import settings
+from api.config import settings
 
 logger = logging.getLogger(__name__)
 

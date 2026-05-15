@@ -7,7 +7,7 @@ import logging
 import os
 from datetime import datetime
 
-from config import settings
+from api.config import settings
 
 logger = logging.getLogger(__name__)
 

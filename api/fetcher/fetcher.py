@@ -7,7 +7,7 @@ from typing import Dict, Optional, List, Tuple, Set
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 import pandas as pd
-from config import settings
+from api.config import settings
 from model.kline_constants import KLineConstants
 
 
