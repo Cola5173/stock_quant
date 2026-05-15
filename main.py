@@ -333,6 +333,25 @@ def cmd_signal(args):
         print(f"  {symbol} - 评分: {score}")
 
 
+def cmd_scheduler(args):
+    """调度器管理"""
+    from scheduler.scheduler import TradingScheduler
+
+    if args.action == "start":
+        scheduler = TradingScheduler(
+            strategy=args.strategy,
+            source=args.source,
+        )
+        scheduler.start()
+    elif args.action == "stop":
+        TradingScheduler.stop()
+    elif args.action == "status":
+        TradingScheduler.status()
+    else:
+        print(f"未知操作: {args.action}")
+
+
+
 
 def main():
     parser = argparse.ArgumentParser(description="A 股量化交易回测系统")
@@ -379,6 +398,13 @@ def main():
     p_sig = subparsers.add_parser("signal", help="生成交易信号")
     p_sig.add_argument("--date", required=True, help="信号日期 YYYY-MM-DD")
 
+    # scheduler 子命令
+    p_sch = subparsers.add_parser("scheduler", help="调度器管理")
+    p_sch.add_argument("action", choices=["start", "stop", "status"], help="操作 (start/stop/status)")
+    p_sch.add_argument("--strategy", default="b1", help="策略名称 (默认 b1)")
+    p_sch.add_argument("--source", default="akshare", choices=["akshare", "baostock"],
+                        help="数据源 (默认 akshare)")
+
     args = parser.parse_args()
 
     if args.command == "data":
@@ -395,6 +421,8 @@ def main():
         cmd_portfolio(args)
     elif args.command == "signal":
         cmd_signal(args)
+    elif args.command == "scheduler":
+        cmd_scheduler(args)
     else:
         parser.print_help()
 
