@@ -17,7 +17,11 @@ logger = logging.getLogger(__name__)
 # 需要拉取的指数（指数源始终使用 tushare，因 ths_daily 仅 tushare 提供）
 INDICES = [
     {"ts_code": "000001.SH", "name": "上证指数", "file_key": "idx_000001_SH"},
+    {"ts_code": "399001.SZ", "name": "深证成指", "file_key": "idx_399001_SZ"},
     {"ts_code": "399006.SZ", "name": "创业板指", "file_key": "idx_399006_SZ"},
+    {"ts_code": "000300.SH", "name": "沪深300", "file_key": "idx_000300_SH"},
+    {"ts_code": "000016.SH", "name": "上证50", "file_key": "idx_000016_SH"},
+    {"ts_code": "000905.SH", "name": "中证500", "file_key": "idx_000905_SH"},
     {"ts_code": "883957.TI", "name": "同花顺全A指数", "file_key": "idx_883957_TI"},
 ]
 
