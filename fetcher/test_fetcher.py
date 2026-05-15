@@ -3,8 +3,9 @@ Fetcher 数据下载测试
 支持 tushare / akshare / baostock 三种数据源
 用法：
     python fetcher/test_fetcher.py --source tushare --symbol 600000 --start 2025-01-01 --end 2025-05-15
+    python fetcher/test_fetcher.py --source tushare --start 2026-01-01  (不传 --symbol 则拉取全量)
     python fetcher/test_fetcher.py --source akshare --symbol 000001
-    python fetcher/test_fetcher.py --source baostock --symbol 300750 --start 2025-03-01
+    python fetcher/test_fetcher.py --list  (仅获取全市场股票列表)
 """
 import sys
 import os
@@ -19,7 +20,7 @@ def main():
     parser.add_argument("--source", default="tushare",
                         choices=["tushare", "akshare", "baostock"],
                         help="数据源 (默认 tushare)")
-    parser.add_argument("--symbol", default="600000", help="股票代码 (默认 600000)")
+    parser.add_argument("--symbol", default=None, help="股票代码，不传则拉取全量")
     parser.add_argument("--start", default=None, help="开始日期 YYYY-MM-DD (默认近30天)")
     parser.add_argument("--end", default=None, help="结束日期 YYYY-MM-DD (默认今天)")
     parser.add_argument("--list", action="store_true", help="测试获取全市场股票列表")
@@ -28,13 +29,13 @@ def main():
     end_date = args.end or datetime.now().strftime("%Y-%m-%d")
     start_date = args.start or (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
 
-    print(f"数据源: {args.source}")
-    print(f"股票: {args.symbol}")
-    print(f"区间: {start_date} ~ {end_date}")
-    print("=" * 50)
-
     source = args.source
     fetcher = _create_fetcher(source)
+
+    print(f"数据源: {source}")
+    print(f"股票: {args.symbol or '全量'}")
+    print(f"区间: {start_date} ~ {end_date}")
+    print("=" * 50)
 
     # 测试1: 获取最近交易日
     print("\n[测试1] 获取最近交易日")
@@ -49,21 +50,32 @@ def main():
         if stock_list:
             print(f"  前10只: {stock_list[:10]}")
 
-    # 测试3: 下载单只股票数据
-    print(f"\n[测试3] 下载 {args.symbol} K线数据")
-    fetch_start = start_date.replace("-", "")
-    fetch_end = end_date.replace("-", "")
-    df = fetcher._fetch_single_stock(args.symbol, fetch_start, fetch_end)
-    if df is not None and not df.empty:
-        fetcher._save_stock_data(args.symbol, df)
-        print(f"  下载成功: {len(df)} 条记录")
-    else:
-        print(f"  未获取到数据")
+    # 测试3: 下载数据
+    if args.symbol:
+        # 指定股票：只下载单只
+        print(f"\n[测试3] 下载 {args.symbol} K线数据")
+        fetch_start = start_date.replace("-", "")
+        fetch_end = end_date.replace("-", "")
+        df = fetcher._fetch_single_stock(args.symbol, fetch_start, fetch_end)
+        if df is not None and not df.empty:
+            fetcher._save_stock_data(args.symbol, df)
+            print(f"  下载成功: {len(df)} 条记录")
+        else:
+            print(f"  未获取到数据")
 
-    # 验证下载结果
-    csv_path = os.path.join("data", f"{args.symbol}.csv")
+        # 验证结果
+        _print_csv_result(args.symbol)
+    else:
+        # 未指定股票：拉取全量
+        print(f"\n[测试3] 拉取全量 K线数据")
+        fetcher.fetch(start_date=start_date, end_date=end_date)
+
+
+def _print_csv_result(symbol: str):
+    """打印下载结果"""
+    import pandas as pd
+    csv_path = os.path.join("data", f"{symbol}.csv")
     if os.path.exists(csv_path):
-        import pandas as pd
         df = pd.read_csv(csv_path, parse_dates=["date"])
         print(f"\n[结果] {csv_path}")
         print(f"  总行数: {len(df)}")
