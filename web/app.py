@@ -103,8 +103,10 @@ def build_kline_chart(df: pd.DataFrame, trades: list) -> go.Figure:
         row_heights=[0.75, 0.25],
     )
 
+    date_str = df["date"].dt.strftime("%Y-%m-%d")
+
     fig.add_trace(go.Candlestick(
-        x=df["date"], open=df["open"], high=df["high"],
+        x=date_str, open=df["open"], high=df["high"],
         low=df["low"], close=df["close"], name="K线",
         increasing_line_color="#ef4444", decreasing_line_color="#22c55e",
         increasing_fillcolor="#ef4444", decreasing_fillcolor="#22c55e",
@@ -114,7 +116,7 @@ def build_kline_chart(df: pd.DataFrame, trades: list) -> go.Figure:
         colors = ["#ef4444" if c >= o else "#22c55e"
                   for c, o in zip(df["close"], df["open"])]
         fig.add_trace(go.Bar(
-            x=df["date"], y=df["volume"], name="成交量",
+            x=date_str, y=df["volume"], name="成交量",
             marker_color=colors, opacity=0.5,
         ), row=2, col=1)
     from vnpy.trader.constant import Direction
@@ -122,12 +124,12 @@ def build_kline_chart(df: pd.DataFrame, trades: list) -> go.Figure:
     sell_dates, sell_prices = [], []
     for trade in trades:
         trade_date = trade.datetime.strftime("%Y-%m-%d") if trade.datetime else None
-        if trade_date and trade_date in df["date"].dt.strftime("%Y-%m-%d").values:
+        if trade_date and trade_date in date_str.values:
             if trade.direction == Direction.LONG:
-                buy_dates.append(trade.datetime)
+                buy_dates.append(trade_date)
                 buy_prices.append(trade.price)
             else:
-                sell_dates.append(trade.datetime)
+                sell_dates.append(trade_date)
                 sell_prices.append(trade.price)
 
     if buy_dates:
@@ -146,7 +148,7 @@ def build_kline_chart(df: pd.DataFrame, trades: list) -> go.Figure:
         template="plotly_dark", showlegend=True,
         margin=dict(l=50, r=20, t=30, b=30),
     )
-    fig.update_xaxes(type="category", row=2, col=1)
+    fig.update_xaxes(type="category", row=2, col=1, showticklabels=False)
     fig.update_xaxes(type="category", row=1, col=1)
     return fig
 
@@ -269,6 +271,13 @@ def main():
             st.warning("回测无结果，请检查数据是否已下载")
     else:
         st.info("请在左侧设置参数后点击「开始回测」")
+        kline_df = load_kline_data(stock_code, str(start_date), str(end_date))
+        if not kline_df.empty:
+            st.subheader(f"K 线走势 — {selected_label}")
+            fig_kline = build_kline_chart(kline_df, [])
+            st.plotly_chart(fig_kline, use_container_width=True)
+        else:
+            st.warning(f"未找到 {stock_code} 的本地数据，请先点击「拉取最新K线数据」")
 
 
 if __name__ == "__main__":
