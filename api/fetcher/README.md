@@ -6,13 +6,21 @@
 
 ```bash
 # 单只股票
-python fetcher/test_fetcher.py --source tushare --symbol 600000 --start 2024-01-01
+python api/fetcher/test_fetcher.py --source tushare --symbol 600000 --start 2024-01-01
 
 # 全量下载（不传 --symbol）
-python fetcher/test_fetcher.py --source tushare --start 2024-01-01
+python api/fetcher/test_fetcher.py --source tushare --start 2024-01-01
+
+# 指数下载（idx_ 前缀）
+python api/fetcher/test_fetcher.py --source tushare --symbol idx_000001_SH --start 2023-01-01
+python api/fetcher/test_fetcher.py --source tushare --symbol idx_399006_SZ --start 2023-01-01
+python api/fetcher/test_fetcher.py --source tushare --symbol idx_883957_TI --start 2023-01-01
+
+# 使用 akshare 数据源
+python api/fetcher/test_fetcher.py --source akshare --symbol 000001 --start 2025-01-01
 
 # 获取全市场股票列表
-python fetcher/test_fetcher.py --source tushare --list
+python api/fetcher/test_fetcher.py --source tushare --list
 ```
 
 ## 数据源
