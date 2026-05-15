@@ -76,6 +76,9 @@ def _step_fetch_data(date: str, source: str):
     if source == "akshare":
         from fetcher.akshare_fetcher import AkShareDataFetcher
         fetcher = AkShareDataFetcher()
+    elif source == "tushare":
+        from fetcher.tushare_fetcher import TushareDataFetcher
+        fetcher = TushareDataFetcher()
     else:
         from fetcher.baostock_fetcher import BaoStockDataFetcher
         fetcher = BaoStockDataFetcher()

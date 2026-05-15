@@ -1,0 +1,216 @@
+"""
+Tushare 数据获取模块
+使用 Tushare Pro 接口，通过 config.tushare_client 统一初始化
+"""
+import os
+import time
+import logging
+from typing import List, Optional
+from datetime import datetime, timedelta
+
+import pandas as pd
+
+from .fetcher import DataFetcher
+from model.kline_constants import KLineConstants
+from config import settings
+from config.tushare_client import pro, ts
+from utils.utils import _normalize_stock_code
+
+logger = logging.getLogger(__name__)
+
+REQUEST_INTERVAL = 0.15
+
+
+def _to_ts_code(stock_code: str) -> str:
+    """纯数字代码 → Tushare 格式（600000 → 600000.SH）"""
+    code = _normalize_stock_code(stock_code)
+    if code.startswith("6"):
+        return f"{code}.SH"
+    if code.startswith(("0", "3")):
+        return f"{code}.SZ"
+    if code.startswith(("4", "8")):
+        return f"{code}.BJ"
+    return code
+
+
+class TushareDataFetcher(DataFetcher):
+    """Tushare Pro 数据源"""
+
+    def __init__(self):
+        super().__init__()
+        self.ts = ts
+        self.pro = pro
+
+    def get_last_trade_date(self) -> str:
+        """通过 Tushare 交易日历获取最近交易日"""
+        try:
+            today = datetime.now().strftime("%Y%m%d")
+            start = (datetime.now() - timedelta(days=15)).strftime("%Y%m%d")
+            df = self.pro.trade_cal(
+                exchange="SSE",
+                start_date=start,
+                end_date=today,
+                is_open="1",
+            )
+            if df is not None and not df.empty:
+                cal_date = df["cal_date"].max()
+                return f"{cal_date[:4]}-{cal_date[4:6]}-{cal_date[6:8]}"
+        except Exception as e:
+            logger.debug(f"Tushare 交易日历获取失败: {e}")
+
+        return datetime.now().strftime("%Y-%m-%d")
+
+    def get_all_stock_list(self, filter_st: bool = True,
+                           cache_file: str = None) -> List[str]:
+        """
+        获取全市场 A 股列表
+        :return: 纯数字代码列表
+        """
+        if cache_file is None:
+            cache_file = settings.STOCK_LIST_CACHE
+
+        try:
+            print("正在获取全市场A股股票列表（Tushare）...")
+            df = self.pro.stock_basic(
+                exchange="",
+                list_status="L",
+                fields="ts_code,symbol,name,market,list_status",
+            )
+
+            if df is None or df.empty:
+                print("Tushare 返回股票列表为空")
+                return []
+
+            stock_list = []
+            for _, row in df.iterrows():
+                code = str(row["symbol"])
+                name = str(row.get("name", ""))
+
+                if not (code.startswith("6") or code.startswith("0") or code.startswith("3")):
+                    continue
+                if filter_st and ("ST" in name or "st" in name):
+                    continue
+
+                stock_list.append(code)
+
+            print(f"获取到 {len(stock_list)} 只 A 股股票")
+
+            if stock_list and cache_file:
+                os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+                with open(cache_file, "w", encoding="utf-8") as f:
+                    for code in stock_list:
+                        f.write(f"{code}\n")
+                print(f"股票列表已缓存到 {cache_file}")
+
+            return stock_list
+
+        except Exception as e:
+            print(f"Tushare 获取股票列表失败: {e}")
+            return []
+
+    def fetch(self, start_date: Optional[str] = None,
+              end_date: Optional[str] = None) -> None:
+        """批量下载股票日线数据"""
+        from tqdm import tqdm
+
+        os.makedirs(settings.DATA_DIR, exist_ok=True)
+
+        print("step 1.1: ----> 获取所有 A 股股票列表...")
+        stock_codes = self._get_all_stock_codes()
+        if not stock_codes:
+            print("未获取到股票列表（请先运行 stock_list 获取，或写入 stock_code.csv）")
+            return
+        print(f"共 {len(stock_codes)} 只股票")
+
+        ts_start = start_date.replace("-", "") if start_date else "20240101"
+        ts_end = end_date.replace("-", "") if end_date else datetime.now().strftime("%Y%m%d")
+
+        print(f"step 1.2: ----> 开始下载 K 线数据 [{start_date} ~ {end_date}]...")
+        success_count = 0
+        failed_count = 0
+
+        for stock_code in tqdm(stock_codes, desc="下载数据"):
+            try:
+                symbol = _normalize_stock_code(stock_code)
+
+                existing_df = self._load_stock_data(symbol)
+                if not existing_df.empty:
+                    max_date = existing_df[KLineConstants.DATE].max()
+                    ts_end_ts = pd.to_datetime(ts_end)
+                    if max_date >= ts_end_ts:
+                        continue
+                    incremental_start = (max_date + timedelta(days=1)).strftime("%Y%m%d")
+                    df = self._fetch_single_stock(symbol, incremental_start, ts_end)
+                else:
+                    df = self._fetch_single_stock(symbol, ts_start, ts_end)
+
+                if df is not None and not df.empty:
+                    self._save_stock_data(symbol, df)
+                    success_count += 1
+
+                time.sleep(REQUEST_INTERVAL)
+
+            except Exception as e:
+                failed_count += 1
+                logger.debug(f"下载 {stock_code} 失败: {e}")
+                continue
+
+        print(f"step 1.3: ----> 下载完成！")
+        print(f"  - 成功: {success_count} 只股票")
+        print(f"  - 失败: {failed_count} 只股票")
+
+    def _fetch_single_stock(self, symbol: str, start_date: str,
+                            end_date: str) -> Optional[pd.DataFrame]:
+        """
+        获取单只股票日线（前复权）
+        :param symbol: 纯数字代码
+        :param start_date: YYYYMMDD
+        :param end_date: YYYYMMDD
+        """
+        ts_code = _to_ts_code(symbol)
+
+        for attempt in range(3):
+            try:
+                df = self.ts.pro_bar(
+                    api=self.pro,
+                    ts_code=ts_code,
+                    adj="qfq",
+                    start_date=start_date,
+                    end_date=end_date,
+                    freq="D",
+                )
+                break
+            except Exception as e:
+                msg = str(e)
+                if "每分钟最多访问该接口" in msg or "rate" in msg.lower():
+                    wait = 2 ** attempt + 1
+                    logger.warning(f"{symbol} 触发限流，{wait}s 后重试: {msg}")
+                    time.sleep(wait)
+                    continue
+                logger.debug(f"{symbol} pro_bar 失败: {e}")
+                return None
+        else:
+            return None
+
+        if df is None or df.empty:
+            return None
+
+        df = df.rename(columns={
+            "trade_date": KLineConstants.DATE,
+            "open": KLineConstants.OPEN,
+            "high": KLineConstants.HIGH,
+            "low": KLineConstants.LOW,
+            "close": KLineConstants.CLOSE,
+            "pre_close": KLineConstants.PRECLOSE,
+            "vol": KLineConstants.VOLUME,
+            "amount": "amount",
+            "pct_chg": "pctChg",
+            "change": "change",
+        })
+
+        df[KLineConstants.DATE] = pd.to_datetime(df[KLineConstants.DATE], format="%Y%m%d")
+        df["code"] = symbol
+        df[KLineConstants.STOCK_CODE] = symbol
+
+        df = df.sort_values(KLineConstants.DATE).reset_index(drop=True)
+        return df

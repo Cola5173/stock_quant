@@ -15,6 +15,9 @@ def cmd_data(args):
     if args.source == "akshare":
         from fetcher.akshare_fetcher import AkShareDataFetcher
         fetcher = AkShareDataFetcher()
+    elif args.source == "tushare":
+        from fetcher.tushare_fetcher import TushareDataFetcher
+        fetcher = TushareDataFetcher()
     else:
         from fetcher.baostock_fetcher import BaoStockDataFetcher
         fetcher = BaoStockDataFetcher()
@@ -417,7 +420,7 @@ def main():
     p_data = subparsers.add_parser("data", help="下载数据并导入 vnpy")
     p_data.add_argument("--start", required=True, help="开始日期 YYYY-MM-DD")
     p_data.add_argument("--end", required=True, help="结束日期 YYYY-MM-DD")
-    p_data.add_argument("--source", default="akshare", choices=["akshare", "baostock"],
+    p_data.add_argument("--source", default="akshare", choices=["akshare", "baostock", "tushare"],
                          help="数据源 (默认 akshare)")
 
     # backtest 子命令
@@ -458,7 +461,7 @@ def main():
     p_sch = subparsers.add_parser("scheduler", help="调度器管理")
     p_sch.add_argument("action", choices=["start", "stop", "status"], help="操作 (start/stop/status)")
     p_sch.add_argument("--strategy", default="b1", help="策略名称 (默认 b1)")
-    p_sch.add_argument("--source", default="akshare", choices=["akshare", "baostock"],
+    p_sch.add_argument("--source", default="akshare", choices=["akshare", "baostock", "tushare"],
                         help="数据源 (默认 akshare)")
 
     # names 子命令

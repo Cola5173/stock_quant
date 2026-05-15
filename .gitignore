@@ -60,6 +60,8 @@ config.json
 *.token
 tushare_token.txt
 secrets/
+.env
+.env.local
 
 # 日志文件（保留目录结构）
 *.log
