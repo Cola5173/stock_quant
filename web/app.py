@@ -3,11 +3,13 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import json
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from dateutil.relativedelta import relativedelta
 
 from config import settings
 from strategy.b1 import B1Strategy
@@ -16,18 +18,67 @@ STRATEGY_MAP = {
     "B1 (KDJ+知行趋势)": B1Strategy,
 }
 
+STOCK_NAMES_CACHE = os.path.join(settings.DATA_DIR, "stock_names.json")
 
-def load_stock_codes():
-    """加载股票代码列表"""
+
+def refresh_stock_names():
+    """从东方财富获取股票名称并缓存（使用 curl 绕过 Python 网络问题）"""
+    import subprocess
+    all_names = {}
+    total_pages = 12
+    for page in range(1, total_pages + 1):
+        url = (
+            f"http://80.push2.eastmoney.com/api/qt/clist/get?"
+            f"pn={page}&pz=500&po=1&np=1&fltt=2&invt=2"
+            f"&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+            f"&fields=f12,f14"
+        )
+        try:
+            result = subprocess.run(
+                ["curl", "-s", "--max-time", "15", url],
+                capture_output=True, text=True, timeout=20,
+            )
+            if result.returncode != 0 or not result.stdout:
+                continue
+            data = json.loads(result.stdout)
+            diff = data.get("data", {}).get("diff", {})
+            for item in diff.values():
+                code = item.get("f12", "")
+                name = item.get("f14", "").strip()
+                if code and name:
+                    all_names[code] = name
+        except Exception:
+            continue
+
+    if all_names:
+        with open(STOCK_NAMES_CACHE, "w", encoding="utf-8") as f:
+            json.dump(all_names, f, ensure_ascii=False, indent=2)
+    return len(all_names)
+
+
+@st.cache_data
+def load_stock_list():
+    """加载股票列表（代码 + 名称）"""
+    names_map = {}
+    if os.path.exists(STOCK_NAMES_CACHE):
+        with open(STOCK_NAMES_CACHE, "r", encoding="utf-8") as f:
+            names_map = json.load(f)
+
     path = settings.STOCK_CODE_FILE
-    codes = []
+    items = []
     with open(path, "r", encoding="utf-8-sig") as f:
         for line in f:
             code = line.strip()
             if code:
                 pure = code.split(".")[-1] if "." in code else code
-                codes.append(pure)
-    return codes
+                exchange = "SH" if pure.startswith("6") else "SZ"
+                name = names_map.get(pure, "")
+                if name:
+                    label = f"{name} ({pure}.{exchange})"
+                else:
+                    label = f"{pure}.{exchange}"
+                items.append({"code": pure, "label": label})
+    return items
 
 
 def load_kline_data(stock_code: str, start: str, end: str) -> pd.DataFrame:
@@ -143,15 +194,47 @@ def main():
     with st.sidebar:
         st.header("回测参数")
         strategy_name = st.selectbox("策略", list(STRATEGY_MAP.keys()))
-        stock_codes = load_stock_codes()
-        stock_code = st.selectbox("股票代码", stock_codes, index=0)
-        col1, col2 = st.columns(2)
-        with col1:
-            start_date = st.date_input("开始日期", value=date(2024, 1, 1))
-        with col2:
-            end_date = st.date_input("结束日期", value=date(2025, 6, 30))
+
+        stock_list = load_stock_list()
+        labels = [item["label"] for item in stock_list]
+        selected_label = st.selectbox("股票", labels, index=0)
+        stock_code = stock_list[labels.index(selected_label)]["code"]
+
+        st.markdown("**回测区间**")
+        today = date.today()
+        period = st.radio(
+            "快捷选择", ["近1年", "近2年", "近3年", "自定义"],
+            horizontal=True, label_visibility="collapsed",
+        )
+        if period == "近1年":
+            start_date = today - relativedelta(years=1)
+            end_date = today
+        elif period == "近2年":
+            start_date = today - relativedelta(years=2)
+            end_date = today
+        elif period == "近3年":
+            start_date = today - relativedelta(years=3)
+            end_date = today
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input("开始", value=date(2024, 1, 1))
+            with col2:
+                end_date = st.date_input("结束", value=today)
+
         capital = st.number_input("初始资金", value=100000, step=10000, min_value=10000)
         run_btn = st.button("开始回测", type="primary", use_container_width=True)
+
+        st.divider()
+        if st.button("刷新股票名称", use_container_width=True):
+            with st.spinner("正在获取..."):
+                count = refresh_stock_names()
+            if count:
+                st.success(f"已缓存 {count} 只股票名称")
+                st.cache_data.clear()
+                st.rerun()
+            else:
+                st.error("获取失败，请检查网络")
 
     if run_btn:
         strategy_cls = STRATEGY_MAP[strategy_name]
@@ -164,6 +247,8 @@ def main():
                     strategy_cls, stock_code, start_dt, end_dt, capital)
             except Exception as e:
                 st.error(f"回测失败: {e}")
+                import traceback
+                st.code(traceback.format_exc())
                 return
         if stats:
             m1, m2, m3, m4 = st.columns(4)

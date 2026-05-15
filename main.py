@@ -351,6 +351,62 @@ def cmd_scheduler(args):
         print(f"未知操作: {args.action}")
 
 
+def cmd_names(args):
+    """获取股票名称缓存"""
+    import json
+    from config import settings
+
+    cache_path = os.path.join(settings.DATA_DIR, "stock_names.json")
+
+    # 方法1: akshare
+    print("尝试 AkShare 获取 A 股名称...")
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_spot_em()
+        names_map = dict(zip(df["代码"].astype(str), df["名称"]))
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(names_map, f, ensure_ascii=False, indent=2)
+        print(f"已缓存 {len(names_map)} 只股票名称 -> {cache_path}")
+        return
+    except Exception as e:
+        print(f"AkShare 失败: {e}")
+
+    # 方法2: curl + 东方财富
+    import subprocess
+    print("尝试 curl + 东方财富...")
+    all_names = {}
+    for page in range(1, 13):
+        url = (
+            f"http://80.push2.eastmoney.com/api/qt/clist/get?"
+            f"pn={page}&pz=500&po=1&np=1&fltt=2&invt=2"
+            f"&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+            f"&fields=f12,f14"
+        )
+        try:
+            result = subprocess.run(
+                ["curl", "-s", "--max-time", "15", url],
+                capture_output=True, text=True, timeout=20,
+            )
+            if result.returncode == 0 and result.stdout:
+                data = json.loads(result.stdout)
+                diff = data.get("data", {}).get("diff", {})
+                for item in diff.values():
+                    code = item.get("f12", "")
+                    name = item.get("f14", "").strip()
+                    if code and name:
+                        all_names[code] = name
+                print(f"  page {page}: +{len(diff)} (total: {len(all_names)})")
+        except Exception:
+            continue
+
+    if all_names:
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(all_names, f, ensure_ascii=False, indent=2)
+        print(f"已缓存 {len(all_names)} 只股票名称 -> {cache_path}")
+    else:
+        print("所有方法均失败，请检查网络后重试")
+
+
 
 
 def main():
@@ -405,6 +461,9 @@ def main():
     p_sch.add_argument("--source", default="akshare", choices=["akshare", "baostock"],
                         help="数据源 (默认 akshare)")
 
+    # names 子命令
+    subparsers.add_parser("names", help="获取股票名称缓存（用于 Web 界面显示）")
+
     args = parser.parse_args()
 
     if args.command == "data":
@@ -423,6 +482,8 @@ def main():
         cmd_signal(args)
     elif args.command == "scheduler":
         cmd_scheduler(args)
+    elif args.command == "names":
+        cmd_names(args)
     else:
         parser.print_help()
 
