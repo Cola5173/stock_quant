@@ -5,6 +5,7 @@ AkShare 数据获取模块
 import os
 import time
 import logging
+import contextlib
 from typing import List, Optional, Set
 from datetime import datetime, timedelta
 
@@ -21,6 +22,24 @@ logger = logging.getLogger(__name__)
 REQUEST_INTERVAL = 0.3
 
 
+@contextlib.contextmanager
+def _no_proxy():
+    """临时禁用代理（东方财富接口走代理会失败）"""
+    saved = {k: os.environ.get(k) for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy")}
+    os.environ["NO_PROXY"] = "*"
+    os.environ["no_proxy"] = "*"
+    for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        os.environ.pop(k, None)
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 class AkShareDataFetcher(DataFetcher):
     """使用 AkShare 数据源（免费，基于东方财富）"""
 
@@ -35,14 +54,14 @@ class AkShareDataFetcher(DataFetcher):
     def get_last_trade_date(self) -> str:
         """获取最近的交易日"""
         try:
-            # 通过获取上证指数最近数据来判断最近交易日
-            df = self.ak.stock_zh_a_hist(
-                symbol="000001",
-                period="daily",
-                start_date=(datetime.now().strftime('%Y%m%d')),
-                end_date=datetime.now().strftime('%Y%m%d'),
-                adjust="qfq"
-            )
+            with _no_proxy():
+                df = self.ak.stock_zh_a_hist(
+                    symbol="000001",
+                    period="daily",
+                    start_date=(datetime.now().strftime('%Y%m%d')),
+                    end_date=datetime.now().strftime('%Y%m%d'),
+                    adjust="qfq"
+                )
             if not df.empty:
                 return df["日期"].iloc[-1]
         except Exception:
@@ -51,15 +70,15 @@ class AkShareDataFetcher(DataFetcher):
         # 回退：往前查找
         for days_back in range(1, 10):
             try:
-                from datetime import timedelta
                 test_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
-                df = self.ak.stock_zh_a_hist(
-                    symbol="000001",
-                    period="daily",
-                    start_date=test_date,
-                    end_date=test_date,
-                    adjust="qfq"
-                )
+                with _no_proxy():
+                    df = self.ak.stock_zh_a_hist(
+                        symbol="000001",
+                        period="daily",
+                        start_date=test_date,
+                        end_date=test_date,
+                        adjust="qfq"
+                    )
                 if not df.empty:
                     return df["日期"].iloc[-1]
             except Exception:
@@ -153,13 +172,14 @@ class AkShareDataFetcher(DataFetcher):
         :param end_date: YYYYMMDD
         """
         try:
-            df = self.ak.stock_zh_a_hist(
-                symbol=symbol,
-                period="daily",
-                start_date=start_date,
-                end_date=end_date,
-                adjust="qfq"  # 前复权
-            )
+            with _no_proxy():
+                df = self.ak.stock_zh_a_hist(
+                    symbol=symbol,
+                    period="daily",
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust="qfq"  # 前复权
+                )
 
             if df is None or df.empty:
                 return None
@@ -206,7 +226,8 @@ class AkShareDataFetcher(DataFetcher):
         last_err = None
         for attempt in range(max_retries):
             try:
-                return self.ak.stock_zh_a_spot_em()
+                with _no_proxy():
+                    return self.ak.stock_zh_a_spot_em()
             except (requests.exceptions.ConnectionError,
                     requests.exceptions.ChunkedEncodingError,
                     requests.exceptions.Timeout,
