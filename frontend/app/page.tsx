@@ -29,6 +29,14 @@ function getDateRange(range: TimeRange): { start: string; end: string } {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
+const INDICATOR_PREFETCH_DAYS = 240;
+
+function getFetchStart(displayStart: string): string {
+  const d = new Date(displayStart);
+  d.setDate(d.getDate() - INDICATOR_PREFETCH_DAYS);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function HomePage() {
   const [navActive, setNavActive] = useNav();
 
@@ -36,8 +44,8 @@ export default function HomePage() {
   const DEFAULT_INDEX: StockItem = { code: "idx_000001_SH", name: "上证指数", label: "上证指数 (000001.SH)", exchange: "SH" };
   const [chartStock, setChartStock] = useState<StockItem>(DEFAULT_INDEX);
   const [chartGranularity, setChartGranularity] = useState<Granularity>("day");
-  const [chartRange, setChartRange] = useState<TimeRange>("1y");
-  const [nWaveEnabled, setNWaveEnabled] = useState(false);
+  const [chartRange, setChartRange] = useState<TimeRange>("6m");
+  const [nWaveEnabled, setNWaveEnabled] = useState(true);
   const [customStart, setCustomStart] = useState(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 2); return d.toISOString().slice(0, 10); });
   const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().slice(0, 10));
 
@@ -53,10 +61,11 @@ export default function HomePage() {
   const today = new Date().toISOString().slice(0, 10);
   const twoYearsAgo = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 2); return d.toISOString().slice(0, 10); })();
 
-  // K线图表用的 query
+  // K线图表用的 query（多拉前置数据供指标计算）
+  const chartFetchStart = useMemo(() => getFetchStart(chartStart), [chartStart]);
   const chartKlineQuery = useQuery({
-    queryKey: ["chart-kline", chartStock.code, chartStart, chartEnd],
-    queryFn: () => api.kline(chartStock.code, chartStart, chartEnd),
+    queryKey: ["chart-kline", chartStock.code, chartFetchStart, chartEnd],
+    queryFn: () => api.kline(chartStock.code, chartFetchStart, chartEnd),
     enabled: navActive === "chart",
   });
 
@@ -125,7 +134,7 @@ export default function HomePage() {
                     </div>
                   )}
                   {chartKlineQuery.data && chartKlineQuery.data.length > 0 && (
-                    <KlineChart bars={chartGranularity === "week" ? aggregateToWeekly(chartKlineQuery.data) : chartKlineQuery.data} nWaveEnabled={nWaveEnabled} />
+                    <KlineChart bars={chartGranularity === "week" ? aggregateToWeekly(chartKlineQuery.data) : chartKlineQuery.data} nWaveEnabled={nWaveEnabled} visibleFrom={chartStart} />
                   )}
                 </div>
               </div>
