@@ -37,12 +37,17 @@ export default function HomePage() {
   const [chartGranularity, setChartGranularity] = useState<Granularity>("day");
   const [chartRange, setChartRange] = useState<TimeRange>("1y");
   const [nWaveEnabled, setNWaveEnabled] = useState(false);
+  const [customStart, setCustomStart] = useState(() => { const d = new Date(); d.setFullYear(d.getFullYear() - 2); return d.toISOString().slice(0, 10); });
+  const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().slice(0, 10));
 
   // 回测 tab 状态
   const [params, setParams] = useState<BacktestParams | null>(null);
   const [result, setResult] = useState<BacktestResponse | null>(null);
 
-  const { start: chartStart, end: chartEnd } = useMemo(() => getDateRange(chartRange), [chartRange]);
+  const { start: chartStart, end: chartEnd } = useMemo(() => {
+    if (chartRange === "custom") return { start: customStart, end: customEnd };
+    return getDateRange(chartRange);
+  }, [chartRange, customStart, customEnd]);
 
   const today = new Date().toISOString().slice(0, 10);
   const twoYearsAgo = (() => { const d = new Date(); d.setFullYear(d.getFullYear() - 2); return d.toISOString().slice(0, 10); })();
@@ -95,10 +100,13 @@ export default function HomePage() {
                   bars={chartKlineQuery.data ?? []}
                   granularity={chartGranularity}
                   timeRange={chartRange}
+                  customStart={customStart}
+                  customEnd={customEnd}
                   nWaveEnabled={nWaveEnabled}
                   onSelectStock={setChartStock}
                   onGranularityChange={setChartGranularity}
                   onTimeRangeChange={setChartRange}
+                  onCustomDateChange={(s, e) => { setCustomStart(s); setCustomEnd(e); }}
                   onNWaveToggle={() => setNWaveEnabled((v) => !v)}
                 />
 

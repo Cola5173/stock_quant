@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { StockSearchBar } from "./stock-search-bar";
+import { DateRangePicker } from "./date-range-picker";
 import type { StockItem, KlineBar } from "@/lib/types";
 
 type Granularity = "day" | "week";
@@ -24,16 +25,19 @@ interface ChartToolbarProps {
   bars: KlineBar[];
   granularity: Granularity;
   timeRange: TimeRange;
+  customStart: string;
+  customEnd: string;
   nWaveEnabled: boolean;
   onSelectStock: (stock: StockItem) => void;
   onGranularityChange: (g: Granularity) => void;
   onTimeRangeChange: (r: TimeRange) => void;
+  onCustomDateChange: (start: string, end: string) => void;
   onNWaveToggle: () => void;
 }
 
 export type { Granularity, TimeRange };
 
-export function ChartToolbar({ stock, bars, granularity, timeRange, nWaveEnabled, onSelectStock, onGranularityChange, onTimeRangeChange, onNWaveToggle }: ChartToolbarProps) {
+export function ChartToolbar({ stock, bars, granularity, timeRange, customStart, customEnd, nWaveEnabled, onSelectStock, onGranularityChange, onTimeRangeChange, onCustomDateChange, onNWaveToggle }: ChartToolbarProps) {
   const quote = useMemo(() => {
     if (!bars || bars.length < 2) return null;
     const latest = bars[bars.length - 1];
@@ -100,6 +104,13 @@ export function ChartToolbar({ stock, bars, granularity, timeRange, nWaveEnabled
             {label}
           </button>
         ))}
+        {timeRange === "custom" && (
+          <DateRangePicker
+            start={customStart}
+            end={customEnd}
+            onChange={onCustomDateChange}
+          />
+        )}
         <span className="w-px h-4 bg-zinc-700 mx-1" />
         <button
           onClick={onNWaveToggle}
