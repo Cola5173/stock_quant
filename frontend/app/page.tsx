@@ -23,6 +23,7 @@ function getDateRange(range: TimeRange): { start: string; end: string } {
     case "quarter": start.setMonth(end.getMonth() - 3); break;
     case "6m": start.setMonth(end.getMonth() - 6); break;
     case "1y": start.setFullYear(end.getFullYear() - 1); break;
+    case "all": return { start: "2000-01-01", end: end.toISOString().slice(0, 10) };
     case "custom": start.setFullYear(end.getFullYear() - 2); break;
   }
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };

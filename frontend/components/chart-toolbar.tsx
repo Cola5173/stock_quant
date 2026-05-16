@@ -6,7 +6,7 @@ import { DateRangePicker } from "./date-range-picker";
 import type { StockItem, KlineBar } from "@/lib/types";
 
 type Granularity = "day" | "week";
-type TimeRange = "quarter" | "6m" | "1y" | "custom";
+type TimeRange = "quarter" | "6m" | "1y" | "all" | "custom";
 
 const GRANULARITY_LABELS: { key: Granularity; label: string }[] = [
   { key: "day", label: "日" },
@@ -17,6 +17,7 @@ const RANGE_LABELS: { key: TimeRange; label: string }[] = [
   { key: "quarter", label: "季度" },
   { key: "6m", label: "半年" },
   { key: "1y", label: "1年" },
+  { key: "all", label: "全部" },
   { key: "custom", label: "自定义" },
 ];
 

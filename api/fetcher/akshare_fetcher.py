@@ -171,6 +171,11 @@ class AkShareDataFetcher(DataFetcher):
         :param start_date: YYYYMMDD
         :param end_date: YYYYMMDD
         """
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+        if (end_dt - start_dt).days > 365 * 2:
+            return self._fetch_single_stock_chunked(symbol, start_date, end_date)
+
         try:
             with _no_proxy():
                 df = self.ak.stock_zh_a_hist(
@@ -178,43 +183,82 @@ class AkShareDataFetcher(DataFetcher):
                     period="daily",
                     start_date=start_date,
                     end_date=end_date,
-                    adjust="qfq"  # 前复权
+                    adjust="qfq"
                 )
 
             if df is None or df.empty:
                 return None
 
-            # AkShare 返回的列名是中文，需要转换
-            column_map = {
-                "日期": KLineConstants.DATE,
-                "开盘": KLineConstants.OPEN,
-                "收盘": KLineConstants.CLOSE,
-                "最高": KLineConstants.HIGH,
-                "最低": KLineConstants.LOW,
-                "成交量": KLineConstants.VOLUME,
-                "成交额": "amount",
-                "振幅": "amplitude_pct",
-                "涨跌幅": "pctChg",
-                "涨跌额": "change",
-                "换手率": "turn",
-            }
-            df = df.rename(columns=column_map)
-
-            # 添加必要字段
-            df[KLineConstants.DATE] = pd.to_datetime(df[KLineConstants.DATE])
-            df["code"] = symbol
-            df["stock_code"] = symbol
-
-            # 计算前收盘价
-            if "preclose" not in df.columns:
-                df["preclose"] = df[KLineConstants.CLOSE].shift(1)
-
-            df = df.sort_values(KLineConstants.DATE).reset_index(drop=True)
-            return df
+            return self._normalize_hist_df(df, symbol)
 
         except Exception as e:
             logger.debug(f"获取 {symbol} 数据失败: {e}")
             return None
+
+    def _fetch_single_stock_chunked(self, symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
+        """分段获取超长日期范围的数据（每段最多2年）"""
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+        chunks = []
+
+        cursor = start_dt
+        while cursor < end_dt:
+            chunk_end = min(cursor + timedelta(days=365 * 2), end_dt)
+            chunk_start_str = cursor.strftime('%Y%m%d')
+            chunk_end_str = chunk_end.strftime('%Y%m%d')
+
+            try:
+                with _no_proxy():
+                    df = self.ak.stock_zh_a_hist(
+                        symbol=symbol,
+                        period="daily",
+                        start_date=chunk_start_str,
+                        end_date=chunk_end_str,
+                        adjust="qfq"
+                    )
+                if df is not None and not df.empty:
+                    print(f"  分段 [{chunk_start_str}~{chunk_end_str}] 获取 {len(df)} 条")
+                    chunks.append(df)
+                else:
+                    print(f"  分段 [{chunk_start_str}~{chunk_end_str}] 无数据")
+            except Exception as e:
+                print(f"  分段 [{chunk_start_str}~{chunk_end_str}] 失败: {e}")
+
+            cursor = chunk_end + timedelta(days=1)
+            time.sleep(REQUEST_INTERVAL)
+
+        if not chunks:
+            return None
+
+        combined = pd.concat(chunks, ignore_index=True)
+        return self._normalize_hist_df(combined, symbol)
+
+    def _normalize_hist_df(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+        """将 AkShare 返回的中文列名 DataFrame 标准化"""
+        column_map = {
+            "日期": KLineConstants.DATE,
+            "开盘": KLineConstants.OPEN,
+            "收盘": KLineConstants.CLOSE,
+            "最高": KLineConstants.HIGH,
+            "最低": KLineConstants.LOW,
+            "成交量": KLineConstants.VOLUME,
+            "成交额": "amount",
+            "振幅": "amplitude_pct",
+            "涨跌幅": "pctChg",
+            "涨跌额": "change",
+            "换手率": "turn",
+        }
+        df = df.rename(columns=column_map)
+
+        df[KLineConstants.DATE] = pd.to_datetime(df[KLineConstants.DATE])
+        df["code"] = symbol
+        df["stock_code"] = symbol
+
+        if "preclose" not in df.columns:
+            df["preclose"] = df[KLineConstants.CLOSE].shift(1)
+
+        df = df.sort_values(KLineConstants.DATE).drop_duplicates(subset=[KLineConstants.DATE], keep='last').reset_index(drop=True)
+        return df
 
     def _fetch_spot_em_with_retry(self, max_retries: int = 3) -> Optional[pd.DataFrame]:
         """
