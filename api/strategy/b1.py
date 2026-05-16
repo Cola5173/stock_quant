@@ -3,7 +3,7 @@ B1 策略
 KDJ + 知行趋势选股策略，适配 vnpy CTA 回测框架
 """
 from vnpy.trader.object import BarData
-from strategy.base_strategy import BaseStrategy
+from api.strategy.base_strategy import BaseStrategy
 
 
 class B1Strategy(BaseStrategy):

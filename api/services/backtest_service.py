@@ -4,8 +4,8 @@ from typing import List
 
 from vnpy.trader.constant import Direction
 
-from strategy.b1 import B1Strategy
-from backtest.engine import BacktestRunner
+from api.strategy.b1 import B1Strategy
+from api.backtest.engine import BacktestRunner
 from adapter.vnpy_adapter import VnpyAdapter
 from api.schemas.models import (
     StrategyItem, BacktestRequest, BacktestResponse, BacktestStats,
