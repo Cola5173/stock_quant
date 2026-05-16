@@ -24,6 +24,7 @@ class BaseStrategy(CtaTemplate):
         self.indicator = None
         self.buy_date = None
         self.prev_close = 0.0
+        self.cash = 0.0
         self._extra_info = self._load_extra_info()
 
     def _load_extra_info(self) -> dict:
@@ -43,14 +44,15 @@ class BaseStrategy(CtaTemplate):
         return 0.10
 
     def on_init(self):
-        self.write_log("策略初始化")
+        self.write_log("Strategy initialized")
+        self.cash = float(getattr(self.cta_engine, "capital", 100000) or 100000)
         self.load_bar(200)
 
     def on_start(self):
-        self.write_log("策略启动")
+        self.write_log("Strategy started")
 
     def on_stop(self):
-        self.write_log("策略停止")
+        self.write_log("Strategy stopped")
 
     def on_bar(self, bar: BarData):
         self.am.update_bar(bar)
@@ -82,6 +84,16 @@ class BaseStrategy(CtaTemplate):
         if volume > 0:
             self.buy(price, volume)
 
+    def buy_full(self, price: float):
+        """A 股满仓买入：用全部可用资金（扣留佣金后）按 100 股取整买入"""
+        if price <= 0 or self.cash <= 0:
+            return
+        rate = float(getattr(self.cta_engine, "rate", 0) or 0)
+        affordable = self.cash / (price * (1 + rate))
+        volume = int(affordable // 100) * 100
+        if volume > 0:
+            self.buy(price, volume)
+
     def sell_stock(self, price: float, volume: float):
         """A 股卖出：最小 100 股"""
         volume = int(volume // 100) * 100
@@ -89,8 +101,14 @@ class BaseStrategy(CtaTemplate):
             self.sell(price, volume)
 
     def on_trade(self, trade: TradeData):
+        rate = float(getattr(self.cta_engine, "rate", 0) or 0)
+        amount = float(trade.price) * float(trade.volume)
+        commission = amount * rate
         if trade.direction.value == "多":
+            self.cash -= amount + commission
             self.buy_date = trade.datetime.date()
+        else:
+            self.cash += amount - commission
 
     def on_order(self, order: OrderData):
         pass

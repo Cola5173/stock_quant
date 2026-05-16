@@ -301,7 +301,7 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
           position: t.direction === "buy" ? "belowBar" : "aboveBar",
           color: t.direction === "buy" ? "#22c55e" : "#ef4444",
           shape: t.direction === "buy" ? "arrowUp" : "arrowDown",
-          text: t.direction === "buy" ? "买" : "卖",
+          text: t.direction === "buy" ? "B" : "S",
         }))
       );
     }

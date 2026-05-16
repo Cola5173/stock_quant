@@ -6,7 +6,7 @@ from vnpy.trader.constant import Direction
 
 from api.strategy.b1 import B1Strategy
 from api.backtest.engine import BacktestRunner
-from adapter.vnpy_adapter import VnpyAdapter
+from api.adapter.vnpy_adapter import VnpyAdapter
 from api.schemas.models import (
     StrategyItem, BacktestRequest, BacktestResponse, BacktestStats,
     TradeRecord, EquityPoint,
@@ -72,12 +72,17 @@ def run_backtest(req: BacktestRequest) -> BacktestResponse:
             d = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)
             equity.append(EquityPoint(date=d, balance=float(balance)))
 
+    # 交易笔数：一买一卖配对算一笔完整交易
+    buy_count = sum(1 for t in trades if t.direction == "buy")
+    sell_count = sum(1 for t in trades if t.direction == "sell")
+    completed_trades = min(buy_count, sell_count)
+
     return BacktestResponse(
         stats=BacktestStats(
             total_return=float(stats.get("total_return", 0) or 0),
-            max_drawdown=float(stats.get("max_drawdown", 0) or 0),
+            max_drawdown=float(stats.get("max_ddpercent", 0) or 0),
             sharpe_ratio=float(stats.get("sharpe_ratio", 0) or 0),
-            total_trade_count=int(stats.get("total_trade_count", 0) or 0),
+            total_trade_count=completed_trades,
         ),
         trades=trades,
         equity_curve=equity,
