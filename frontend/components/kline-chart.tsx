@@ -19,6 +19,7 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
   const mainLabelRef = useRef<HTMLDivElement>(null);
   const volLabelRef = useRef<HTMLDivElement>(null);
   const kdjLabelRef = useRef<HTMLDivElement>(null);
+  const macdLabelRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
@@ -39,7 +40,7 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
         horzLines: { color: "#27272a" },
       },
       width: containerRef.current.clientWidth,
-      height: 600,
+      height: 720,
       timeScale: { borderColor: "#3f3f46", timeVisible: false },
       rightPriceScale: { visible: false },
       leftPriceScale: { visible: true, borderColor: "#3f3f46" },
@@ -217,11 +218,52 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
     kdjDSeries.setData(bars.map((b, i) => ({ time: b.date as Time, value: dArr[i] })));
     kdjJSeries.setData(bars.map((b, i) => ({ time: b.date as Time, value: jArr[i] })));
 
-    // 设置各面板比例：K线 60%, 成交量 20%, KDJ 20%
+    // MACD 计算 (12, 26, 9)
+    const ema12 = ema(closes, 12);
+    const ema26 = ema(closes, 26);
+    const dif: number[] = closes.map((_, i) => ema12[i] - ema26[i]);
+    const dea = ema(dif, 9);
+    const macdHist: number[] = dif.map((d, i) => (d - dea[i]) * 2);
+
+    // 创建 MACD pane
+    const macdPane = chart.addPane();
+    const macdDifSeries = macdPane.addSeries(LineSeries, {
+      color: "#f59e0b",
+      lineWidth: 1,
+      priceScaleId: "left",
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    const macdDeaSeries = macdPane.addSeries(LineSeries, {
+      color: "#3b82f6",
+      lineWidth: 1,
+      priceScaleId: "left",
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    const macdHistSeries = macdPane.addSeries(HistogramSeries, {
+      priceScaleId: "left",
+      lastValueVisible: false,
+      priceLineVisible: false,
+      color: "transparent",
+    });
+
+    macdDifSeries.setData(bars.map((b, i) => ({ time: b.date as Time, value: dif[i] })));
+    macdDeaSeries.setData(bars.map((b, i) => ({ time: b.date as Time, value: dea[i] })));
+    macdHistSeries.setData(bars.map((b, i) => ({
+      time: b.date as Time,
+      value: macdHist[i],
+      color: macdHist[i] >= 0 ? "rgba(239,68,68,0.8)" : "rgba(34,197,94,0.8)",
+    })));
+
+    // 设置各面板比例：K线 50%, 成交量 15%, KDJ 15%, MACD 20%
     const panes = chart.panes();
-    if (panes[0]) panes[0].setStretchFactor(3);
-    volPane.setStretchFactor(1);
-    kdjPane.setStretchFactor(1);
+    if (panes[0]) panes[0].setStretchFactor(10);
+    volPane.setStretchFactor(3);
+    kdjPane.setStretchFactor(3);
+    macdPane.setStretchFactor(4);
 
     // KDJ 面板顶部留出空间，避免线条和标签重叠
     kdjKSeries.priceScale().applyOptions({
@@ -398,6 +440,15 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
           <span class="text-pink-500">J: ${jArr[barIdx].toFixed(2)}</span>
         `;
       }
+      const macdLabel = macdLabelRef.current;
+      if (macdLabel) {
+        macdLabel.innerHTML = `
+          <span class="text-zinc-300">MACD</span>
+          <span class="text-amber-500">DIF: ${dif[barIdx].toFixed(2)}</span>
+          <span class="text-blue-500">DEA: ${dea[barIdx].toFixed(2)}</span>
+          <span class="text-zinc-100">MACD: ${macdHist[barIdx].toFixed(2)}</span>
+        `;
+      }
     };
 
     chart.subscribeCrosshairMove((param) => {
@@ -466,7 +517,7 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
 
   return (
     <div className="flex w-full">
-      <div className="flex-1 min-w-0 relative">
+      <div className="flex-1 min-w-0 relative isolate">
         <div ref={containerRef} className="w-full" />
         <div
           ref={mainLabelRef}
@@ -480,10 +531,15 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
         <div
           ref={kdjLabelRef}
           className="absolute left-16 text-[11px] flex gap-3 pointer-events-none z-10 px-1 bg-zinc-950/70 rounded"
-          style={{ top: "482px" }}
+          style={{ top: "472px" }}
+        />
+        <div
+          ref={macdLabelRef}
+          className="absolute left-16 text-[11px] flex gap-3 pointer-events-none z-10 px-1 bg-zinc-950/70 rounded"
+          style={{ top: "582px" }}
         />
       </div>
-      <div className="w-[180px] flex flex-col ml-1" style={{ height: "600px" }}>
+      <div className="w-[180px] flex flex-col ml-1" style={{ height: "720px" }}>
         <canvas
           ref={chipCanvasRef}
           className="w-full flex-none"
