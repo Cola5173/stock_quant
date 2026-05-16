@@ -17,6 +17,8 @@ export function EquityChart({ points }: { points: EquityPoint[] }) {
       height: 200,
       timeScale: { borderColor: "#3f3f46", timeVisible: false },
       rightPriceScale: { borderColor: "#3f3f46" },
+      handleScroll: false,
+      handleScale: false,
     });
     chartRef.current = chart;
 

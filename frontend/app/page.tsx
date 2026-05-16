@@ -69,10 +69,11 @@ export default function HomePage() {
     enabled: navActive === "chart",
   });
 
-  // 回测用的 query
+  // 回测用的 query（多拉前置数据供指标计算）
+  const backtestFetchStart = useMemo(() => params?.start ? getFetchStart(params.start) : "", [params?.start]);
   const backtestKlineQuery = useQuery({
-    queryKey: ["kline", params?.code, params?.start, params?.end],
-    queryFn: () => api.kline(params!.code, params!.start, params!.end),
+    queryKey: ["kline", params?.code, backtestFetchStart, params?.end],
+    queryFn: () => api.kline(params!.code, backtestFetchStart, params!.end),
     enabled: navActive === "backtest" && !!params?.code,
   });
 
@@ -166,6 +167,15 @@ export default function HomePage() {
                   </div>
                 )}
 
+                {result && <StatsCards stats={result.stats} />}
+
+                {result && result.equity_curve.length > 0 && (
+                  <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4">
+                    <h3 className="text-sm font-semibold text-zinc-200 mb-3">资金曲线</h3>
+                    <EquityChart points={result.equity_curve} />
+                  </div>
+                )}
+
                 <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold text-zinc-200">K 线走势</h3>
@@ -187,18 +197,9 @@ export default function HomePage() {
                     </div>
                   )}
                   {backtestKlineQuery.data && backtestKlineQuery.data.length > 0 && (
-                    <KlineChart bars={backtestKlineQuery.data} trades={result?.trades ?? []} />
+                    <KlineChart bars={backtestKlineQuery.data} trades={result?.trades ?? []} visibleFrom={params?.start} locked />
                   )}
                 </div>
-
-                {result && <StatsCards stats={result.stats} />}
-
-                {result && result.equity_curve.length > 0 && (
-                  <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4">
-                    <h3 className="text-sm font-semibold text-zinc-200 mb-3">资金曲线</h3>
-                    <EquityChart points={result.equity_curve} />
-                  </div>
-                )}
 
                 {result && <TradesTable trades={result.trades} />}
               </div>

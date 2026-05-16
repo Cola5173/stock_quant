@@ -5,7 +5,7 @@ export function StatsCards({ stats }: { stats: BacktestStats }) {
     { label: "总收益率", value: `${stats.total_return >= 0 ? "+" : ""}${stats.total_return.toFixed(2)}%`, positive: stats.total_return >= 0 },
     { label: "最大回撤", value: `${stats.max_drawdown.toFixed(2)}%`, negative: true },
     { label: "夏普比率", value: stats.sharpe_ratio.toFixed(2) },
-    { label: "交易次数", value: stats.total_trade_count },
+    { label: "交易笔数", value: stats.total_trade_count },
   ];
   return (
     <div className="grid grid-cols-4 gap-4">

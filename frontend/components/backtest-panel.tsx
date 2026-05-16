@@ -51,7 +51,7 @@ export function BacktestPanel({
   const [customEnd, setCustomEnd] = useState(today);
 
   const filteredStocks = useMemo(() => {
-    if (!stockSearch) return stocks.slice(0, 30);
+    if (!stockSearch) return [];
     const q = stockSearch.toLowerCase();
     return stocks.filter((s) =>
       s.code.includes(q) || s.name.toLowerCase().includes(q)

@@ -12,7 +12,7 @@ function formatVolume(v: number): string {
   return v.toFixed(0);
 }
 
-export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFrom }: { bars: KlineBar[]; trades?: TradeRecord[]; nWaveEnabled?: boolean; visibleFrom?: string }) {
+export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFrom, locked = false }: { bars: KlineBar[]; trades?: TradeRecord[]; nWaveEnabled?: boolean; visibleFrom?: string; locked?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chipCanvasRef = useRef<HTMLCanvasElement>(null);
   const dataRef = useRef<HTMLDivElement>(null);
@@ -41,7 +41,12 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
       },
       width: containerRef.current.clientWidth,
       height: 720,
-      timeScale: { borderColor: "#3f3f46", timeVisible: false },
+      timeScale: {
+        borderColor: "#3f3f46",
+        timeVisible: false,
+      },
+      handleScroll: !locked,
+      handleScale: !locked,
       rightPriceScale: { visible: false },
       leftPriceScale: { visible: true, borderColor: "#3f3f46" },
       localization: {
@@ -513,7 +518,7 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
       chartRef.current = null;
       candleSeriesRef.current = null;
     };
-  }, [bars, trades, nWaveEnabled, visibleFrom]);
+  }, [bars, trades, nWaveEnabled, visibleFrom, locked]);
 
   return (
     <div className="flex w-full">
