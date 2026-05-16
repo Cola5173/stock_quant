@@ -5,8 +5,15 @@ import { createChart, createSeriesMarkers, CandlestickSeries, HistogramSeries, L
 import type { KlineBar, TradeRecord } from "@/lib/types";
 import { detectNWave } from "@/lib/n-wave";
 
+function formatVolume(v: number): string {
+  if (v >= 1e8) return `${(v / 1e8).toFixed(2)}亿`;
+  if (v >= 1e4) return `${(v / 1e4).toFixed(2)}万`;
+  return v.toFixed(0);
+}
+
 export function KlineChart({ bars, trades = [], nWaveEnabled = false }: { bars: KlineBar[]; trades?: TradeRecord[]; nWaveEnabled?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
   useEffect(() => {
@@ -111,6 +118,42 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false }: { bars: 
 
     chart.timeScale().fitContent();
 
+    const barMap = new Map(bars.map((b) => [b.date, b]));
+
+    chart.subscribeCrosshairMove((param) => {
+      const tooltip = tooltipRef.current;
+      if (!tooltip) return;
+      if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) {
+        tooltip.style.display = "none";
+        return;
+      }
+      const bar = barMap.get(param.time as string);
+      if (!bar) {
+        tooltip.style.display = "none";
+        return;
+      }
+      const change = bar.close - bar.open;
+      const changePercent = (change / bar.open) * 100;
+      const color = change >= 0 ? "#ef4444" : "#22c55e";
+      tooltip.style.display = "block";
+      tooltip.innerHTML = `
+        <div class="text-zinc-400 text-[11px] mb-1">${bar.date}</div>
+        <div class="flex justify-between gap-3"><span class="text-zinc-500">开</span><span style="color:${color}">${bar.open.toFixed(2)}</span></div>
+        <div class="flex justify-between gap-3"><span class="text-zinc-500">高</span><span style="color:${color}">${bar.high.toFixed(2)}</span></div>
+        <div class="flex justify-between gap-3"><span class="text-zinc-500">低</span><span style="color:${color}">${bar.low.toFixed(2)}</span></div>
+        <div class="flex justify-between gap-3"><span class="text-zinc-500">收</span><span style="color:${color}">${bar.close.toFixed(2)}</span></div>
+        <div class="flex justify-between gap-3"><span class="text-zinc-500">涨跌</span><span style="color:${color}">${changePercent >= 0 ? "+" : ""}${changePercent.toFixed(2)}%</span></div>
+        <div class="flex justify-between gap-3"><span class="text-zinc-500">成交量</span><span class="text-zinc-200">${formatVolume(bar.volume)}</span></div>
+      `;
+      const containerWidth = containerRef.current?.clientWidth ?? 0;
+      const tooltipWidth = 140;
+      const x = param.point.x + 60 + tooltipWidth > containerWidth
+        ? param.point.x - tooltipWidth - 10
+        : param.point.x + 60;
+      tooltip.style.left = `${x}px`;
+      tooltip.style.top = `8px`;
+    });
+
     const ro = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current) {
         chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
@@ -125,5 +168,14 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false }: { bars: 
     };
   }, [bars, trades, nWaveEnabled]);
 
-  return <div ref={containerRef} className="w-full" />;
+  return (
+    <div className="relative w-full">
+      <div ref={containerRef} className="w-full" />
+      <div
+        ref={tooltipRef}
+        className="absolute z-10 pointer-events-none bg-zinc-900/95 border border-zinc-700 rounded-md p-2 text-xs shadow-lg"
+        style={{ display: "none", minWidth: "140px" }}
+      />
+    </div>
+  );
 }
