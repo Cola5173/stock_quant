@@ -46,11 +46,15 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false }: { bars: 
       wickUpColor: "#ef4444",
       wickDownColor: "#22c55e",
       priceScaleId: "left",
+      lastValueVisible: false,
+      priceLineVisible: false,
     });
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
+      lastValueVisible: false,
+      priceLineVisible: false,
     });
     chart.priceScale("volume").applyOptions({
       scaleMargins: { top: 0.8, bottom: 0 },
@@ -120,21 +124,53 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false }: { bars: 
 
     const barMap = new Map(bars.map((b) => [b.date, b]));
 
+    let pricePriceLine: ReturnType<typeof candleSeries.createPriceLine> | null = null;
+    let volumePriceLine: ReturnType<typeof volumeSeries.createPriceLine> | null = null;
+    const clearPriceLines = () => {
+      if (pricePriceLine) { candleSeries.removePriceLine(pricePriceLine); pricePriceLine = null; }
+      if (volumePriceLine) { volumeSeries.removePriceLine(volumePriceLine); volumePriceLine = null; }
+    };
+
     chart.subscribeCrosshairMove((param) => {
       const tooltip = tooltipRef.current;
       if (!tooltip) return;
       if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) {
         tooltip.style.display = "none";
+        clearPriceLines();
         return;
       }
       const bar = barMap.get(param.time as string);
       if (!bar) {
         tooltip.style.display = "none";
+        clearPriceLines();
         return;
       }
       const change = bar.close - bar.open;
       const changePercent = (change / bar.open) * 100;
       const color = change >= 0 ? "#ef4444" : "#22c55e";
+
+      clearPriceLines();
+      pricePriceLine = candleSeries.createPriceLine({
+        price: bar.close,
+        color: "#a1a1aa",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        axisLabelColor: color,
+        axisLabelTextColor: "#ffffff",
+        title: "",
+      });
+      volumePriceLine = volumeSeries.createPriceLine({
+        price: bar.volume,
+        color: "#a1a1aa",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        axisLabelColor: "#3f3f46",
+        axisLabelTextColor: "#ffffff",
+        title: "",
+      });
+
       tooltip.style.display = "block";
       tooltip.innerHTML = `
         <div class="text-zinc-400 text-[11px] mb-1">${bar.date}</div>
