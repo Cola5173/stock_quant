@@ -239,7 +239,6 @@ class B1Strategy(BaseStrategy):
             if force_exit:
                 sell_price = min(bar.open_price, self.stop_loss_price) if stop_triggered else bar.close_price * 10
                 self.sell_stock(sell_price, abs(self.pos), reason=force_exit)
-                self._reset_state()
                 self.prev_trend_white = trend_white
                 return
 
@@ -268,7 +267,6 @@ class B1Strategy(BaseStrategy):
 
             if trend_exit:
                 self.sell_stock(bar.close_price * 10, abs(self.pos), reason=trend_exit)
-                self._reset_state()
                 self.prev_trend_white = trend_white
                 return
 
@@ -542,6 +540,9 @@ class B1Strategy(BaseStrategy):
         else:
             if self.buy_price > 0:
                 self.realized_pnl += (trade.price - self.buy_price) * trade.volume
+            # 全仓卖出成交后才重置状态（避免 sell 单未成交时状态被错误清零）
+            if self.pos == 0:
+                self._reset_state()
             self.hold_days = 0
             self.max_profit_pct = 0.0
             self.below_yellow_count = 0
