@@ -15,7 +15,7 @@ from api.schemas.models import (
 
 # 策略注册表（key → (name, class, description)）
 STRATEGY_REGISTRY = {
-    "b1": ("B1 (KDJ+知行趋势)", B1Strategy, "基于 KDJ 指标和知行趋势线的择时策略"),
+    "b1": ("B1", B1Strategy, "异动突破回踩企稳 + 放飞盈利分批减仓"),
 }
 
 # vnpy ArrayManager(size=200) 预热所需的额外历史天数

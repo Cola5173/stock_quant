@@ -299,7 +299,7 @@ export function KlineChart({ bars, trades = [], nWaveEnabled = false, visibleFro
         trades.map((t) => ({
           time: t.date as Time,
           position: t.direction === "buy" ? "belowBar" : "aboveBar",
-          color: t.direction === "buy" ? "#22c55e" : "#ef4444",
+          color: t.direction === "buy" ? "#ef4444" : "#22c55e",
           shape: t.direction === "buy" ? "arrowUp" : "arrowDown",
           text: t.direction === "buy" ? "B" : "S",
         }))

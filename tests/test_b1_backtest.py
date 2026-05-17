@@ -1,6 +1,7 @@
 """B1 策略回测：7 只标的近 2 年交易"""
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import date
@@ -15,6 +16,7 @@ STOCKS = [
     ("605168", "三人行"),
     ("002685", "华东重机"),
     ("600366", "宁波韵升"),
+    ("002594", "比亚迪"),
 ]
 
 START = date(2024, 5, 17)
