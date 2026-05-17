@@ -8,7 +8,9 @@ B1 策略
 3. 异动日开始往后 N 天，红 K 累计涨幅 / (红涨+绿跌) >= 50%（红肥绿瘦：涨多于跌）
 4. 异动突破：过去 N 日内存在某一天，放量阳线、单日涨幅2.5%~13%（斜率不高、建仓特征），
    当日收盘 > 大哥黄；且该异动日前 5 天内有过"收<=大哥黄"（证明刚从黄下方启动）
-5. 异动后企稳：从异动日到当前 T-1，跌破大哥黄天数 <= 3，期间无放量大阴线
+5. 异动后企稳：从异动日到当前 T-1，跌破大哥黄天数 <= 5，期间无放量大阴线
+6. 水下金叉：异动日之前 60 天内存在 DIF<0 上穿 DEA 的水下金叉（确认底部企稳）
+7. 底背离：异动日之前最近两个 J 负值低点（间隔≥10天，价差≤20%），② MACD≥① 或 ② J＞①（动能减弱）
 
 卖出条件（任一触发）：
 1. 连续2天收盘低于大哥黄
@@ -43,6 +45,10 @@ class B1Strategy(BaseStrategy):
     stable_drop_pct = 5.0
     stable_drop_vol_ratio = 1.5
 
+    macd_cross_lookback = 60
+    divergence_price_max = 25.0
+    divergence_min_gap_days = 5
+
     stop_loss_days = 5
     stop_loss_pct = -5.0
     below_yellow_days_limit = 2
@@ -60,6 +66,7 @@ class B1Strategy(BaseStrategy):
         "burst_lookback_days", "burst_min_chg", "burst_max_chg", "burst_vol_ratio",
         "burst_recent_below_days",
         "stable_below_yellow_max", "stable_drop_pct", "stable_drop_vol_ratio",
+        "macd_cross_lookback", "divergence_price_max", "divergence_min_gap_days",
         "stop_loss_days", "stop_loss_pct",
         "below_yellow_days_limit", "below_white_days_limit", "main_up_profit_threshold",
         "sell_vol_ratio", "sell_drop_pct",
@@ -92,6 +99,32 @@ class B1Strategy(BaseStrategy):
             return 0.0
         base = float(np.mean(volumes[i - window:i]))
         return volumes[i] / base if base > 0 else 0.0
+
+    @staticmethod
+    def _macd_series(closes: np.ndarray) -> tuple:
+        s = pd.Series(closes)
+        ema12 = s.ewm(span=12, adjust=False).mean()
+        ema26 = s.ewm(span=26, adjust=False).mean()
+        dif = (ema12 - ema26).values
+        dea = pd.Series(dif).ewm(span=9, adjust=False).mean().values
+        return dif, dea
+
+    @staticmethod
+    def _j_series(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray) -> np.ndarray:
+        n = 9
+        sc = pd.Series(closes)
+        sh = pd.Series(highs)
+        sl = pd.Series(lows)
+        hh = sh.rolling(n, min_periods=1).max()
+        ll = sl.rolling(n, min_periods=1).min()
+        denom = (hh - ll).replace(0, np.nan)
+        rsv = ((sc - ll) / denom * 100).fillna(50).replace([np.inf, -np.inf], 50).values
+        k = np.full(len(rsv), 50.0)
+        d = np.full(len(rsv), 50.0)
+        for i in range(1, len(rsv)):
+            k[i] = 2.0 / 3.0 * k[i-1] + 1.0 / 3.0 * rsv[i]
+            d[i] = 2.0 / 3.0 * d[i-1] + 1.0 / 3.0 * k[i]
+        return 3 * k - 2 * d
 
     def execute_logic(self, bar: BarData, can_sell: bool,
                       at_upper_limit: bool, at_lower_limit: bool):
@@ -253,6 +286,54 @@ class B1Strategy(BaseStrategy):
         if total_amp <= 0:
             return
         if red_amp / total_amp * 100 < self.red_ratio_min:
+            return
+
+        # 条件6/7: 水下金叉 + MACD 底背离（基于异动日之前的窗口）
+        highs = self.am.high_array
+        lows = self.am.low_array
+        dif_arr, dea_arr = self._macd_series(closes)
+        j_arr = self._j_series(highs, lows, closes)
+
+        # c6 水下金叉：异动日之前 macd_cross_lookback 天内存在 DIF<0 上穿 DEA
+        cross_start = max(1, burst_idx - self.macd_cross_lookback)
+        has_water_cross = False
+        for i in range(cross_start, burst_idx + 1):
+            if (dif_arr[i - 1] <= dea_arr[i - 1]
+                    and dif_arr[i] > dea_arr[i]
+                    and dif_arr[i] < 0):
+                has_water_cross = True
+                break
+        if not has_water_cross:
+            return
+
+        # c7 底背离：异动日之前的 J 负值低点中，
+        # ① 取"J 最深"那个低点（动能最弱）
+        # ② 取最近的低点，要求与 ① 间隔 >= divergence_min_gap_days
+        # 价差 ≤ divergence_price_max%
+        # 满足"② MACD >= ① MACD"或"② J > ① J"任一（动能减弱即视为底背离）
+        j_lows = []
+        scan_start = max(2, burst_idx - 150)
+        for i in range(scan_start, burst_idx):
+            if j_arr[i] < 0 and j_arr[i] < j_arr[i - 1] and j_arr[i] < j_arr[i + 1]:
+                macd_val = (dif_arr[i] - dea_arr[i]) * 2.0
+                j_lows.append((i, closes[i], macd_val, j_arr[i]))
+        if len(j_lows) < 2:
+            return
+        idx2, p2_price, p2_macd, p2_j = j_lows[-1]
+        gap = max(1, self.divergence_min_gap_days)
+        prior = [pt for pt in j_lows[:-1] if idx2 - pt[0] >= gap]
+        if not prior:
+            return
+        p1 = min(prior, key=lambda x: x[3])
+        p1_price, p1_macd, p1_j = p1[1], p1[2], p1[3]
+        if p1_price <= 0:
+            return
+        price_diff_pct = abs(p2_price - p1_price) / p1_price * 100
+        if price_diff_pct > self.divergence_price_max:
+            return
+        macd_divergence = p2_macd >= p1_macd
+        j_divergence = p2_j > p1_j
+        if not (macd_divergence or j_divergence):
             return
 
         # 全部条件满足，买入
