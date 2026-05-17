@@ -6,8 +6,8 @@ B1 策略
 1. 趋势白 > 大哥黄，收盘价在大哥黄之上（多头格局）
 2. KDJ J < 15（超卖）
 3. 异动日开始往后 N 天，红 K 累计涨幅 / (红涨+绿跌) >= 50%（红肥绿瘦：涨多于跌）
-4. 异动突破：过去 N 日内存在某一天，放量阳线、单日涨幅3%~13%（斜率不高、建仓特征），
-   且收盘从大哥黄下方"一举站上"大哥黄（前一日收盘<=大哥黄，当日收盘>大哥黄）
+4. 异动突破：过去 N 日内存在某一天，放量阳线、单日涨幅2.5%~13%（斜率不高、建仓特征），
+   当日收盘 > 大哥黄；且该异动日前 5 天内有过"收<=大哥黄"（证明刚从黄下方启动）
 5. 异动后企稳：从异动日到当前 T-1，跌破大哥黄天数 <= 3，期间无放量大阴线
 
 卖出条件（任一触发）：
@@ -37,6 +37,7 @@ class B1Strategy(BaseStrategy):
     burst_min_chg = 2.5
     burst_max_chg = 13.0
     burst_vol_ratio = 1.3
+    burst_recent_below_days = 5
 
     stable_below_yellow_max = 5
     stable_drop_pct = 5.0
@@ -57,6 +58,7 @@ class B1Strategy(BaseStrategy):
     parameters = [
         "kdj_j_threshold", "red_ratio_min", "red_window_size",
         "burst_lookback_days", "burst_min_chg", "burst_max_chg", "burst_vol_ratio",
+        "burst_recent_below_days",
         "stable_below_yellow_max", "stable_drop_pct", "stable_drop_vol_ratio",
         "stop_loss_days", "stop_loss_pct",
         "below_yellow_days_limit", "below_white_days_limit", "main_up_profit_threshold",
@@ -192,7 +194,14 @@ class B1Strategy(BaseStrategy):
             vol_r = self._prev_vol_ratio(volumes, i)
             if vol_r < self.burst_vol_ratio:
                 continue
-            if closes[i - 1] > yellow_arr[i - 1]:
+            # 异动日前 N 天内必须有过"收 <= 黄"，证明刚从黄下方启动
+            look_back = max(1, self.burst_recent_below_days)
+            recent_below = False
+            for k in range(max(0, i - look_back), i):
+                if closes[k] <= yellow_arr[k]:
+                    recent_below = True
+                    break
+            if not recent_below:
                 continue
             if c <= yellow_arr[i]:
                 continue
