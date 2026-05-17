@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { Header } from "@/components/header";
 import { Sidebar, useNav } from "@/components/sidebar";
@@ -53,6 +53,11 @@ export default function HomePage() {
   // 回测 tab 状态
   const [params, setParams] = useState<BacktestParams | null>(null);
   const [result, setResult] = useState<BacktestResponse | null>(null);
+
+  // 切换股票 / 日期 / 策略 / 资金后清空旧回测结果，避免显示与新参数不匹配的统计、资金曲线和交易标注
+  useEffect(() => {
+    setResult(null);
+  }, [params?.strategy, params?.code, params?.start, params?.end, params?.capital]);
 
   const { start: chartStart, end: chartEnd } = useMemo(() => {
     if (chartRange === "custom") return { start: customStart, end: customEnd };
