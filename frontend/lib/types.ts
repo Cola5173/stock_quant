@@ -33,6 +33,7 @@ export interface TradeRecord {
   direction: "buy" | "sell";
   price: number;
   volume: number;
+  reason?: string;
 }
 
 export interface EquityPoint {

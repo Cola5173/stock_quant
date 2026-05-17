@@ -41,12 +41,13 @@ export function TradesTable({ trades }: { trades: TradeRecord[] }) {
               <th className="text-left px-4 py-2 font-medium">方向</th>
               <th className="text-right px-4 py-2 font-medium">价格</th>
               <th className="text-right px-4 py-2 font-medium">数量</th>
+              <th className="text-left px-4 py-2 font-medium">操作原因</th>
             </tr>
           </thead>
           <tbody>
             {trades.map((t, i) => (
               <tr key={i} className="border-t border-zinc-800/60">
-                <td className="px-4 py-2 text-zinc-300">{t.date}</td>
+                <td className="px-4 py-2 text-zinc-300 whitespace-nowrap">{t.date}</td>
                 <td className="px-4 py-2">
                   <span
                     className={`text-xs px-2 py-0.5 rounded ${
@@ -58,6 +59,7 @@ export function TradesTable({ trades }: { trades: TradeRecord[] }) {
                 </td>
                 <td className="px-4 py-2 text-right text-zinc-300 font-mono">{t.price.toFixed(2)}</td>
                 <td className="px-4 py-2 text-right text-zinc-300 font-mono">{t.volume}</td>
+                <td className="px-4 py-2 text-zinc-400">{t.reason || "—"}</td>
               </tr>
             ))}
           </tbody>

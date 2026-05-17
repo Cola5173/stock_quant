@@ -5,7 +5,7 @@ B1 策略
 买入条件（全部满足）：
 1. 趋势白 > 大哥黄，收盘价在大哥黄之上（多头格局）
 2. KDJ J < 15（超卖）
-3. 前20日阳线占比 >= 50%（红肥绿瘦）
+3. 异动日开始往后 N 天，红 K 累计涨幅 / (红涨+绿跌) >= 50%（红肥绿瘦：涨多于跌）
 4. 异动突破：过去 N 日内存在某一天，放量阳线、单日涨幅3%~13%（斜率不高、建仓特征），
    且收盘从大哥黄下方"一举站上"大哥黄（前一日收盘<=大哥黄，当日收盘>大哥黄）
 5. 异动后企稳：从异动日到当前 T-1，跌破大哥黄天数 <= 3，期间无放量大阴线
@@ -31,6 +31,7 @@ class B1Strategy(BaseStrategy):
 
     kdj_j_threshold = 15
     red_ratio_min = 50
+    red_window_size = 21
 
     burst_lookback_days = 30
     burst_min_chg = 3.0
@@ -54,7 +55,7 @@ class B1Strategy(BaseStrategy):
     short_tp_min_profit = 5.0
 
     parameters = [
-        "kdj_j_threshold", "red_ratio_min",
+        "kdj_j_threshold", "red_ratio_min", "red_window_size",
         "burst_lookback_days", "burst_min_chg", "burst_max_chg", "burst_vol_ratio",
         "stable_below_yellow_max", "stable_drop_pct", "stable_drop_vol_ratio",
         "stop_loss_days", "stop_loss_pct",
@@ -113,7 +114,7 @@ class B1Strategy(BaseStrategy):
         if self.pos > 0 and can_sell and not at_lower_limit:
             if self.buy_price <= 0:
                 return
-            sell = False
+            sell_reason = ""
             cur_profit = (bar.close_price - self.buy_price) / self.buy_price * 100
 
             if bar.close_price < big_bro_yellow:
@@ -121,7 +122,7 @@ class B1Strategy(BaseStrategy):
             else:
                 self.below_yellow_count = 0
             if self.below_yellow_count >= self.below_yellow_days_limit:
-                sell = True
+                sell_reason = sell_reason or "连续2天破大哥黄"
 
             if bar.close_price < trend_white:
                 self.below_white_count += 1
@@ -129,30 +130,30 @@ class B1Strategy(BaseStrategy):
                 self.below_white_count = 0
             if (self.below_white_count >= self.below_white_days_limit
                     and self.max_profit_pct >= self.main_up_profit_threshold):
-                sell = True
+                sell_reason = sell_reason or "主升脱离成本破白清仓"
 
             if self.hold_days >= self.stop_loss_days and cur_profit < self.stop_loss_pct:
-                sell = True
+                sell_reason = sell_reason or f"持仓{self.hold_days}天亏损{cur_profit:.1f}%止损"
 
             vol_ma5 = float(np.mean(volumes[-6:-1]))
             cur_vol_ratio = bar.volume / vol_ma5 if vol_ma5 > 0 else 0
             cur_drop = (bar.open_price - bar.close_price) / bar.open_price * 100
             if cur_vol_ratio > self.sell_vol_ratio and cur_drop > self.sell_drop_pct:
-                sell = True
+                sell_reason = sell_reason or f"放量大阴线(量比{cur_vol_ratio:.1f}/跌{cur_drop:.1f}%)"
 
             if self.max_profit_pct >= self.trailing_start_pct:
                 drawdown = self.max_profit_pct - cur_profit
                 if drawdown >= self.max_profit_pct * self.trailing_drawdown_ratio:
-                    sell = True
+                    sell_reason = sell_reason or f"主升回撤1/3止盈(峰值{self.max_profit_pct:.1f}%)"
 
             if (j_val > self.short_tp_j
                     and cur_profit > self.short_tp_min_profit
                     and self.max_profit_pct < self.trailing_start_pct
                     and trend_white < self.prev_trend_white):
-                sell = True
+                sell_reason = sell_reason or f"J高位+白拐头短线止盈(盈利{cur_profit:.1f}%)"
 
-            if sell:
-                self.sell_stock(bar.close_price, abs(self.pos))
+            if sell_reason:
+                self.sell_stock(bar.close_price, abs(self.pos), reason=sell_reason)
                 self._reset_state()
 
             self.prev_trend_white = trend_white
@@ -170,13 +171,6 @@ class B1Strategy(BaseStrategy):
 
         # 条件2: J < 阈值（超卖）
         if j_val >= self.kdj_j_threshold:
-            return
-
-        # 条件3: 前20日红肥绿瘦
-        recent_closes = closes[-21:-1]
-        recent_opens = opens[-21:-1]
-        red_count = int(np.sum(recent_closes >= recent_opens))
-        if red_count / 20 * 100 < self.red_ratio_min:
             return
 
         # 条件4: 异动突破（窗口内最早一次"放量阳线 + 突破大哥黄"）
@@ -208,6 +202,24 @@ class B1Strategy(BaseStrategy):
         if burst_idx < 0:
             return
 
+        # 条件3: 异动日开始往后 N 天的红肥绿瘦
+        # 用累计幅度而非天数：红涨累计 / (红涨累计 + 绿跌累计) >= 50%
+        win_start = burst_idx
+        win_end = min(n_total - 1, burst_idx + self.red_window_size)
+        win_closes = closes[win_start:win_end]
+        win_opens = opens[win_start:win_end]
+        win_len = len(win_closes)
+        if win_len < 5:
+            return
+        chg_pct = np.where(win_opens > 0, (win_closes - win_opens) / win_opens * 100, 0.0)
+        red_amp = float(np.sum(chg_pct[chg_pct > 0]))
+        green_amp = float(-np.sum(chg_pct[chg_pct < 0]))
+        total_amp = red_amp + green_amp
+        if total_amp <= 0:
+            return
+        if red_amp / total_amp * 100 < self.red_ratio_min:
+            return
+
         # 条件5: 异动后企稳（无放量大阴线 + 跌破大哥黄天数受限）
         below_count = 0
         for i in range(burst_idx + 1, n_total - 1):
@@ -225,7 +237,7 @@ class B1Strategy(BaseStrategy):
             return
 
         # 全部条件满足，买入
-        self.buy_full(bar.close_price)
+        self.buy_full(bar.close_price, reason="异动突破回踩企稳")
         self.buy_price = bar.close_price
         self.hold_days = 0
         self.max_profit_pct = 0.0

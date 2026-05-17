@@ -64,6 +64,7 @@ class TradeRecord(BaseModel):
     direction: str     # buy / sell
     price: float
     volume: int
+    reason: str = ""
 
 
 class EquityPoint(BaseModel):

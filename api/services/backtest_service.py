@@ -53,15 +53,26 @@ def run_backtest(req: BacktestRequest) -> BacktestResponse:
 
     # 交易明细
     raw_trades = runner.engine.get_all_trades() or []
+    strategy = getattr(runner.engine, "strategy", None)
+    reasons = list(getattr(strategy, "trade_reasons", []) or [])
     trades: List[TradeRecord] = []
     for t in raw_trades:
         if t.datetime is None:
             continue
+        date_str = t.datetime.strftime("%Y-%m-%d")
+        direction = "buy" if t.direction == Direction.LONG else "sell"
+        reason = ""
+        for i, r in enumerate(reasons):
+            if r["date"] == date_str and r["direction"] == direction:
+                reason = r.get("reason", "")
+                reasons.pop(i)
+                break
         trades.append(TradeRecord(
-            date=t.datetime.strftime("%Y-%m-%d"),
-            direction="buy" if t.direction == Direction.LONG else "sell",
+            date=date_str,
+            direction=direction,
             price=float(t.price),
             volume=int(t.volume),
+            reason=reason,
         ))
 
     # 资金曲线
