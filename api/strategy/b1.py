@@ -6,8 +6,10 @@ B1 策略
   基本条件（必须全部满足）：
     1. 多头格局：趋势白 > 大哥黄，收盘 > 大哥黄
     2. KDJ J < 15（超卖）
-    3. 异动突破：过去 N 日存在放量阳，前 5 天有过收<=黄，当日收>黄，涨幅2.5-13%，量比≥1.3
-    4. 异动后无放量大阴线（绝对底线）
+    3. 翻番过滤：最近 doubled_lookback 日内最高/最低 < doubled_ratio（已大幅上涨的不再买）
+    4. 卖出冷却：异动日必须出现在上次卖出之后（避免止损/止盈后立刻复买）
+    5. 异动突破：过去 N 日存在放量阳，前 5 天有过收<=黄，当日收>黄，涨幅2.5-13%，量比≥1.3
+    6. 异动后无放量大阴线（绝对底线）
   多因子打分（总分 ≥ score_threshold）：
     A 红肥绿瘦比例: ≥50% +1, ≥60% +2, ≥70% +3
     B 水下金叉（DIF<0 上穿 DEA）: +1
@@ -62,6 +64,10 @@ class B1Strategy(BaseStrategy):
     # 多因子打分阈值
     score_threshold = 5
 
+    # 翻番过滤：最近 doubled_lookback 日 max/min 比例 >= doubled_ratio 视为已大涨，跳过
+    doubled_lookback = 60
+    doubled_ratio = 1.8
+
     stop_loss_distance_pct = 3.0
     below_yellow_days_limit = 2
     below_white_days_limit = 2
@@ -80,6 +86,7 @@ class B1Strategy(BaseStrategy):
         "stable_below_yellow_max", "stable_drop_pct", "stable_drop_vol_ratio",
         "macd_cross_lookback", "divergence_price_max", "divergence_min_gap_days",
         "score_threshold",
+        "doubled_lookback", "doubled_ratio",
         "stop_loss_distance_pct",
         "below_yellow_days_limit", "below_white_days_limit", "main_up_profit_threshold",
         "sell_vol_ratio", "sell_drop_pct",
@@ -87,7 +94,8 @@ class B1Strategy(BaseStrategy):
         "short_tp_j", "short_tp_min_profit",
     ]
     variables = ["hold_days", "buy_price", "buy_day_low", "stop_loss_price",
-                 "max_profit_pct", "below_yellow_count", "below_white_count"]
+                 "max_profit_pct", "below_yellow_count", "below_white_count",
+                 "bars_since_last_sell"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
@@ -99,6 +107,8 @@ class B1Strategy(BaseStrategy):
         self.below_yellow_count = 0
         self.below_white_count = 0
         self.prev_trend_white = 0.0
+        # 9999 表示从未卖出过；卖出后重置为 0，每根 bar +1
+        self.bars_since_last_sell = 9999
 
     @staticmethod
     def _yellow_series(closes: np.ndarray) -> np.ndarray:
@@ -141,12 +151,28 @@ class B1Strategy(BaseStrategy):
             d[i] = 2.0 / 3.0 * d[i-1] + 1.0 / 3.0 * k[i]
         return 3 * k - 2 * d
 
+    def _recently_doubled(self, closes: np.ndarray) -> bool:
+        """回看 doubled_lookback 日，max/min 比例 >= doubled_ratio 则视为已翻番。"""
+        n = self.doubled_lookback
+        if n <= 0 or len(closes) < n:
+            return False
+        window = closes[-n:]
+        win_low = float(np.min(window))
+        if win_low <= 0:
+            return False
+        win_high = float(np.max(window))
+        return win_high / win_low >= self.doubled_ratio
+
     def execute_logic(self, bar: BarData, can_sell: bool,
                       at_upper_limit: bool, at_lower_limit: bool):
         am = self.am
         closes = am.close_array
         opens = am.open_array
         volumes = am.volume_array
+
+        # 卖出冷却计数：每根 bar +1，卖出时在 _reset_state 中归零
+        if self.bars_since_last_sell < 10**9:
+            self.bars_since_last_sell += 1
 
         zx = self.indicator.zx_trend()
         trend_white = zx["white"]
@@ -223,6 +249,10 @@ class B1Strategy(BaseStrategy):
         if j_val >= self.kdj_j_threshold:
             return
 
+        # 条件3: 翻番过滤（最近 doubled_lookback 日 max/min 已超阈值的不再买）
+        if self._recently_doubled(closes):
+            return
+
         # 条件4: 异动突破（收集所有合规候选）
         N = self.burst_lookback_days
         n_total = len(closes)
@@ -253,6 +283,13 @@ class B1Strategy(BaseStrategy):
             if c <= yellow_arr[i]:
                 continue
             candidates.append(i)
+
+        # 卖出冷却：异动日必须出现在上次卖出之后
+        # 当前 bar 索引 = n_total - 1，距离当前 bar (n_total-1-ci) 步要 < bars_since_last_sell
+        if self.bars_since_last_sell < n_total:
+            cur_idx = n_total - 1
+            candidates = [ci for ci in candidates
+                          if (cur_idx - ci) < self.bars_since_last_sell]
 
         if not candidates:
             return
@@ -430,6 +467,8 @@ class B1Strategy(BaseStrategy):
         self.max_profit_pct = 0.0
         self.below_yellow_count = 0
         self.below_white_count = 0
+        # 卖出后重置冷却计数：异动日索引必须在本次卖出之后才允许再买
+        self.bars_since_last_sell = 0
 
     def on_trade(self, trade):
         super().on_trade(trade)
