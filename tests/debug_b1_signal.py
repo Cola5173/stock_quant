@@ -3,9 +3,9 @@ B1 信号漏买排查脚本
 输入 symbol + date，加载该票数据，逐关卡检查 B1 策略买入条件，定位卡掉点。
 
 用法:
-    python tools/debug_b1_signal.py 601778 2025-12-30
-    python tools/debug_b1_signal.py 605168 2025-12-22
-    python tools/debug_b1_signal.py 002929 2025-03-25
+    python tests/debug_b1_signal.py 601778 2025-12-30
+    python tests/debug_b1_signal.py 605168 2025-12-22
+    python tests/debug_b1_signal.py 002929 2025-03-25
 """
 import argparse
 import os
