@@ -2,15 +2,21 @@
 B1 策略
 异动突破 + 回踩企稳 买入策略
 
-买入条件（全部满足）：
-1. 趋势白 > 大哥黄，收盘价在大哥黄之上（多头格局）
-2. KDJ J < 15（超卖）
-3. 异动日开始往后 N 天，红 K 累计涨幅 / (红涨+绿跌) >= 50%（红肥绿瘦：涨多于跌）
-4. 异动突破：过去 N 日内存在某一天，放量阳线、单日涨幅2.5%~13%（斜率不高、建仓特征），
-   当日收盘 > 大哥黄；且该异动日前 5 天内有过"收<=大哥黄"（证明刚从黄下方启动）
-5. 异动后企稳：从异动日到当前 T-1，跌破大哥黄天数 <= 5，期间无放量大阴线
-6. 水下金叉：异动日之前 60 天内存在 DIF<0 上穿 DEA 的水下金叉（确认底部企稳）
-7. 底背离：异动日之前最近两个 J 负值低点（间隔≥10天，价差≤20%），② MACD≥① 或 ② J＞①（动能减弱）
+买入条件:
+  基本条件（必须全部满足）：
+    1. 多头格局：趋势白 > 大哥黄，收盘 > 大哥黄
+    2. KDJ J < 15（超卖）
+    3. 异动突破：过去 N 日存在放量阳，前 5 天有过收<=黄，当日收>黄，涨幅2.5-13%，量比≥1.3
+    4. 异动后无放量大阴线（绝对底线）
+  多因子打分（总分 ≥ score_threshold）：
+    A 红肥绿瘦比例: ≥50% +1, ≥60% +2, ≥70% +3
+    B 水下金叉（DIF<0 上穿 DEA）: +1
+    C MACD 底背离（② MACD ≥ ①）: +2
+    D J 底背离（② J > ①）: +1
+    E 异动量比强度: ≥2 +1, ≥3 +2
+    F 异动后地量企稳（后期均量比≤0.7）: +1
+    G 跌破黄线快速收回（≤2 天回）: +1
+    H 破黄总天数 ≤3: +1
 
 卖出条件（任一触发）：
 1. 连续2天收盘低于大哥黄
@@ -49,6 +55,9 @@ class B1Strategy(BaseStrategy):
     divergence_price_max = 25.0
     divergence_min_gap_days = 5
 
+    # 多因子打分阈值
+    score_threshold = 5
+
     stop_loss_days = 5
     stop_loss_pct = -5.0
     below_yellow_days_limit = 2
@@ -67,6 +76,7 @@ class B1Strategy(BaseStrategy):
         "burst_recent_below_days",
         "stable_below_yellow_max", "stable_drop_pct", "stable_drop_vol_ratio",
         "macd_cross_lookback", "divergence_price_max", "divergence_min_gap_days",
+        "score_threshold",
         "stop_loss_days", "stop_loss_pct",
         "below_yellow_days_limit", "below_white_days_limit", "main_up_profit_threshold",
         "sell_vol_ratio", "sell_drop_pct",
@@ -208,7 +218,7 @@ class B1Strategy(BaseStrategy):
         if j_val >= self.kdj_j_threshold:
             return
 
-        # 条件4: 异动突破（收集所有合规候选，c5 验证后取第一个通过的）
+        # 条件4: 异动突破（收集所有合规候选）
         N = self.burst_lookback_days
         n_total = len(closes)
         if n_total < N + 6:
@@ -227,7 +237,6 @@ class B1Strategy(BaseStrategy):
             vol_r = self._prev_vol_ratio(volumes, i)
             if vol_r < self.burst_vol_ratio:
                 continue
-            # 异动日前 N 天内必须有过"收 <= 黄"，证明刚从黄下方启动
             look_back = max(1, self.burst_recent_below_days)
             recent_below = False
             for k in range(max(0, i - look_back), i):
@@ -243,106 +252,154 @@ class B1Strategy(BaseStrategy):
         if not candidates:
             return
 
-        # 条件5: 异动后企稳（无放量大阴线 + 跌破大哥黄天数受限）
-        # 从最早异动日往后试，找第一个能通过企稳验证的
-        burst_idx = -1
-        for ci in candidates:
-            below_count = 0
-            big_drop = False
-            for j in range(ci + 1, n_total - 1):
-                if closes[j] < yellow_arr[j]:
-                    below_count += 1
-                o, c = opens[j], closes[j]
-                if o <= 0:
-                    continue
-                drop_pct = (o - c) / o * 100
-                vol_r = self._prev_vol_ratio(volumes, j)
-                if drop_pct > self.stable_drop_pct and vol_r > self.stable_drop_vol_ratio:
-                    big_drop = True
-                    break
-            if big_drop:
-                continue
-            if below_count > self.stable_below_yellow_max:
-                continue
-            burst_idx = ci
-            break
-
-        if burst_idx < 0:
-            return
-
-        # 条件3: 异动日开始往后 N 天的红肥绿瘦
-        # 用累计幅度而非天数：红涨累计 / (红涨累计 + 绿跌累计) >= 50%
-        win_start = burst_idx
-        win_end = min(n_total - 1, burst_idx + self.red_window_size)
-        win_closes = closes[win_start:win_end]
-        win_opens = opens[win_start:win_end]
-        win_len = len(win_closes)
-        if win_len < 5:
-            return
-        chg_pct = np.where(win_opens > 0, (win_closes - win_opens) / win_opens * 100, 0.0)
-        red_amp = float(np.sum(chg_pct[chg_pct > 0]))
-        green_amp = float(-np.sum(chg_pct[chg_pct < 0]))
-        total_amp = red_amp + green_amp
-        if total_amp <= 0:
-            return
-        if red_amp / total_amp * 100 < self.red_ratio_min:
-            return
-
-        # 条件6/7: 水下金叉 + MACD 底背离（基于异动日之前的窗口）
+        # 条件5: 异动后无放量大阴线（基本底线）+ 打分 ≥ 阈值
+        # 遍历候选异动日，找第一个"无放量大阴 + 打分通过"的
         highs = self.am.high_array
         lows = self.am.low_array
         dif_arr, dea_arr = self._macd_series(closes)
         j_arr = self._j_series(highs, lows, closes)
 
-        # c6 水下金叉：异动日之前 macd_cross_lookback 天内存在 DIF<0 上穿 DEA
+        burst_idx = -1
+        score = 0
+        breakdown = []
+        for ci in candidates:
+            big_drop = False
+            for jj in range(ci + 1, n_total - 1):
+                o, c = opens[jj], closes[jj]
+                if o <= 0:
+                    continue
+                drop_pct = (o - c) / o * 100
+                vol_r = self._prev_vol_ratio(volumes, jj)
+                if drop_pct > self.stable_drop_pct and vol_r > self.stable_drop_vol_ratio:
+                    big_drop = True
+                    break
+            if big_drop:
+                continue
+            cs, cb = self._compute_score(
+                ci, closes, opens, volumes, yellow_arr,
+                dif_arr, dea_arr, j_arr, n_total,
+            )
+            if cs >= self.score_threshold:
+                burst_idx = ci
+                score = cs
+                breakdown = cb
+                break
+
+        if burst_idx < 0:
+            return
+
+        # 全部条件满足，买入
+        reason = f"B1异动突破[分{score}|" + " ".join(breakdown) + "]"
+        self.buy_full(bar.close_price, reason=reason)
+        self.buy_price = bar.close_price
+        self.hold_days = 0
+        self.max_profit_pct = 0.0
+        self.below_yellow_count = 0
+        self.below_white_count = 0
+
+    def _compute_score(self, burst_idx, closes, opens, volumes, yellow_arr,
+                       dif_arr, dea_arr, j_arr, n_total):
+        """对指定 burst_idx 计算 8 因子打分，返回 (score, breakdown_list)"""
+        score = 0
+        breakdown = []
+
+        # A 红肥绿瘦
+        win_start = burst_idx
+        win_end = min(n_total - 1, burst_idx + self.red_window_size)
+        win_closes = closes[win_start:win_end]
+        win_opens = opens[win_start:win_end]
+        red_score = 0
+        red_pct = 0.0
+        if len(win_closes) >= 5:
+            chg_pct = np.where(win_opens > 0, (win_closes - win_opens) / win_opens * 100, 0.0)
+            red_amp = float(np.sum(chg_pct[chg_pct > 0]))
+            green_amp = float(-np.sum(chg_pct[chg_pct < 0]))
+            total_amp = red_amp + green_amp
+            if total_amp > 0:
+                red_pct = red_amp / total_amp * 100
+                if red_pct >= 70: red_score = 3
+                elif red_pct >= 60: red_score = 2
+                elif red_pct >= 50: red_score = 1
+        score += red_score
+        breakdown.append(f"红肥{red_pct:.0f}%:{red_score}")
+
+        # B 水下金叉
         cross_start = max(1, burst_idx - self.macd_cross_lookback)
-        has_water_cross = False
+        has_cross = False
         for i in range(cross_start, burst_idx + 1):
             if (dif_arr[i - 1] <= dea_arr[i - 1]
                     and dif_arr[i] > dea_arr[i]
                     and dif_arr[i] < 0):
-                has_water_cross = True
+                has_cross = True
                 break
-        if not has_water_cross:
-            return
+        b_score = 1 if has_cross else 0
+        score += b_score
+        breakdown.append(f"金叉:{b_score}")
 
-        # c7 底背离：异动日之前的 J 负值低点中，
-        # ① 取"J 最深"那个低点（动能最弱）
-        # ② 取最近的低点，要求与 ① 间隔 >= divergence_min_gap_days
-        # 价差 ≤ divergence_price_max%
-        # 满足"② MACD >= ① MACD"或"② J > ① J"任一（动能减弱即视为底背离）
+        # C/D 底背离
         j_lows = []
         scan_start = max(2, burst_idx - 150)
         for i in range(scan_start, burst_idx):
             if j_arr[i] < 0 and j_arr[i] < j_arr[i - 1] and j_arr[i] < j_arr[i + 1]:
                 macd_val = (dif_arr[i] - dea_arr[i]) * 2.0
                 j_lows.append((i, closes[i], macd_val, j_arr[i]))
-        if len(j_lows) < 2:
-            return
-        idx2, p2_price, p2_macd, p2_j = j_lows[-1]
-        gap = max(1, self.divergence_min_gap_days)
-        prior = [pt for pt in j_lows[:-1] if idx2 - pt[0] >= gap]
-        if not prior:
-            return
-        p1 = min(prior, key=lambda x: x[3])
-        p1_price, p1_macd, p1_j = p1[1], p1[2], p1[3]
-        if p1_price <= 0:
-            return
-        price_diff_pct = abs(p2_price - p1_price) / p1_price * 100
-        if price_diff_pct > self.divergence_price_max:
-            return
-        macd_divergence = p2_macd >= p1_macd
-        j_divergence = p2_j > p1_j
-        if not (macd_divergence or j_divergence):
-            return
+        c_score = 0
+        d_score = 0
+        if len(j_lows) >= 2:
+            idx2, p2_price, p2_macd, p2_j = j_lows[-1]
+            gap = max(1, self.divergence_min_gap_days)
+            prior = [pt for pt in j_lows[:-1] if idx2 - pt[0] >= gap]
+            if prior:
+                p1 = min(prior, key=lambda x: x[3])
+                if p1[1] > 0:
+                    price_diff = abs(p2_price - p1[1]) / p1[1] * 100
+                    if price_diff <= self.divergence_price_max:
+                        if p2_macd >= p1[2]: c_score = 2
+                        if p2_j > p1[3]: d_score = 1
+        score += c_score + d_score
+        breakdown.append(f"MACD背:{c_score} J背:{d_score}")
 
-        # 全部条件满足，买入
-        self.buy_full(bar.close_price, reason="异动突破回踩企稳")
-        self.buy_price = bar.close_price
-        self.hold_days = 0
-        self.max_profit_pct = 0.0
-        self.below_yellow_count = 0
-        self.below_white_count = 0
+        # E 异动量比强度
+        burst_vr = self._prev_vol_ratio(volumes, burst_idx)
+        if burst_vr >= 3.0: e_score = 2
+        elif burst_vr >= 2.0: e_score = 1
+        else: e_score = 0
+        score += e_score
+        breakdown.append(f"量比{burst_vr:.1f}:{e_score}")
+
+        # F 异动后地量
+        after_vols = volumes[burst_idx + 1:n_total - 1]
+        f_score = 0
+        avg_vr = 0.0
+        if len(after_vols) >= 3:
+            base_vol = float(np.mean(volumes[max(0, burst_idx - 20):burst_idx]))
+            if base_vol > 0:
+                avg_vr = float(np.mean(after_vols)) / base_vol
+                if 0 < avg_vr <= 0.7: f_score = 1
+        score += f_score
+        breakdown.append(f"地量{avg_vr:.1f}:{f_score}")
+
+        # G 跌破黄线快速收回
+        g_score = 0
+        below_streak = 0
+        for jj in range(burst_idx + 1, n_total - 1):
+            if closes[jj] < yellow_arr[jj]:
+                below_streak += 1
+            else:
+                if 0 < below_streak <= 2:
+                    g_score = 1
+                below_streak = 0
+        score += g_score
+        breakdown.append(f"快收回:{g_score}")
+
+        # H 破黄总天数 ≤3
+        below_total = sum(1 for jj in range(burst_idx + 1, n_total - 1)
+                          if closes[jj] < yellow_arr[jj])
+        h_score = 1 if below_total <= 3 else 0
+        score += h_score
+        breakdown.append(f"破黄{below_total}:{h_score}")
+
+        return score, breakdown
 
     def _reset_state(self):
         self.hold_days = 0
