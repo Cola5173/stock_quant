@@ -22,7 +22,7 @@ B1 策略
 
 卖出条件（任一触发）：
 1. 连续2天收盘低于大哥黄
-2. 跌破动态止损价（买入时计算）：
+2. 跌破动态止损价（买入时计算 + 日内 low 触及即触发，成交价取 min(开盘价, 止损价)）：
    - 买入价在趋势白上方且距离>3%：止损=买入当天最低价
    - 买入价在趋势白上方且距离≤3%：止损=趋势白
    - 买入价在趋势白下方且距离大哥黄>3%：止损=买入当天最低价
@@ -191,6 +191,7 @@ class B1Strategy(BaseStrategy):
             if self.buy_price <= 0:
                 return
             sell_reason = ""
+            stop_triggered = False  # 标记是否仅由"日内触及止损"触发，决定成交价
             cur_profit = (bar.close_price - self.buy_price) / self.buy_price * 100
 
             if bar.close_price < big_bro_yellow:
@@ -208,8 +209,11 @@ class B1Strategy(BaseStrategy):
                     and self.max_profit_pct >= self.main_up_profit_threshold):
                 sell_reason = sell_reason or "主升脱离成本破白清仓"
 
-            if self.stop_loss_price > 0 and bar.close_price < self.stop_loss_price:
-                sell_reason = sell_reason or f"跌破止损价{self.stop_loss_price:.2f}"
+            # 日内触及止损价立即触发（盘中实盘 stop loss 行为，不等收盘）
+            if self.stop_loss_price > 0 and bar.low_price <= self.stop_loss_price:
+                if not sell_reason:
+                    sell_reason = f"日内跌破止损价{self.stop_loss_price:.2f}"
+                    stop_triggered = True
 
             vol_ma5 = float(np.mean(volumes[-6:-1]))
             cur_vol_ratio = bar.volume / vol_ma5 if vol_ma5 > 0 else 0
@@ -229,7 +233,12 @@ class B1Strategy(BaseStrategy):
                 sell_reason = sell_reason or f"J高位+白拐头短线止盈(盈利{cur_profit:.1f}%)"
 
             if sell_reason:
-                self.sell_stock(bar.close_price, abs(self.pos), reason=sell_reason)
+                # 止损触发：跳空低开按开盘价，否则按止损价；其他原因按收盘价
+                if stop_triggered:
+                    sell_price = min(bar.open_price, self.stop_loss_price)
+                else:
+                    sell_price = bar.close_price
+                self.sell_stock(sell_price, abs(self.pos), reason=sell_reason)
                 self._reset_state()
 
             self.prev_trend_white = trend_white
