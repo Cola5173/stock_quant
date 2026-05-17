@@ -1,5 +1,5 @@
 """策略 + 回测服务"""
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List
 
 from vnpy.trader.constant import Direction
@@ -17,6 +17,11 @@ from api.schemas.models import (
 STRATEGY_REGISTRY = {
     "b1": ("B1 (KDJ+知行趋势)", B1Strategy, "基于 KDJ 指标和知行趋势线的择时策略"),
 }
+
+# vnpy ArrayManager(size=200) 预热所需的额外历史天数
+# load_bar(350) 自然日 ≈ 226 交易日，留余量保证回测开始时 am 已 inited
+# 数据库需多导入 ~30 天保证 vnpy 能完整读到 350 天数据
+WARMUP_DAYS = 400
 
 
 def list_strategies() -> List[StrategyItem]:
@@ -39,7 +44,10 @@ def run_backtest(req: BacktestRequest) -> BacktestResponse:
     end_dt = datetime.combine(req.end, datetime.min.time())
 
     # 回测前确保 CSV 数据已导入 vnpy 数据库
-    VnpyAdapter().import_single_stock(req.code, str(req.start), str(req.end))
+    # 向前多导入 WARMUP_DAYS 天数据，供 ArrayManager 预热（否则前 200 根回测 bar
+    # 都被用来填 am，期间 execute_logic 不会执行 → 短区间回测早期交易全部丢失）
+    import_start = (req.start - timedelta(days=WARMUP_DAYS)).isoformat()
+    VnpyAdapter().import_single_stock(req.code, import_start, str(req.end))
 
     runner = BacktestRunner(
         strategy_class=strategy_cls,

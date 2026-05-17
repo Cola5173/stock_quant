@@ -7,6 +7,7 @@ import os
 
 from vnpy_ctastrategy import CtaTemplate, StopOrder, BarGenerator, ArrayManager
 from vnpy.trader.object import BarData, TickData, TradeData, OrderData
+from vnpy.trader.constant import Interval
 
 from api.indicator.indicators import IndicatorCalculator
 from api.config import settings
@@ -49,7 +50,9 @@ class BaseStrategy(CtaTemplate):
     def on_init(self):
         self.write_log("Strategy initialized")
         self.cash = float(getattr(self.cta_engine, "capital", 100000) or 100000)
-        self.load_bar(200)
+        # 必须显式传 Interval.DAILY，否则 CtaTemplate.load_bar 默认 MINUTE 会导致数据库查空
+        # ArrayManager(size=200) 需 200 交易日才 inited，350 自然日 ≈ 226 交易日，留余量保证 am 一上来就 inited
+        self.load_bar(350, interval=Interval.DAILY)
 
     def on_start(self):
         self.write_log("Strategy started")
