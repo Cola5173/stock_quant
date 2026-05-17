@@ -18,6 +18,10 @@ B1 策略
     F 异动后地量企稳（后期均量比≤0.7）: +1
     G 跌破黄线快速收回（≤2 天回）: +1
     H 破黄总天数 ≤3: +1
+  扣分因子（建仓阶段不健康信号）：
+    I 跳空: 向下≥1% -1, 向下≥3% -2, 向上≥3% -1（累计）
+    J 量价背离: 阴线放量(跌≥1.5%且量比≥1.2) -1, 阴线巨量(跌≥2.5%且量比≥1.5) -2,
+               阳线缩量(涨≥2%且量比≤0.4) -1, 高位阳线放巨量(涨≥2%且量比≥2.5) -1（累计）
 
 卖出条件（三层优先级）：
   Layer 1 — 强制退出（全仓清出）：
@@ -406,8 +410,9 @@ class B1Strategy(BaseStrategy):
                 self.stop_loss_price = big_bro_yellow
 
     def _compute_score(self, burst_idx, closes, opens, volumes, yellow_arr,
-                       dif_arr, dea_arr, j_arr, n_total):
-        """对指定 burst_idx 计算 8 因子打分，返回 (score, breakdown_list)"""
+                       dif_arr, dea_arr, j_arr, n_total,
+                       highs=None, lows=None):
+        """对指定 burst_idx 计算多因子打分，返回 (score, breakdown_list)"""
         score = 0
         breakdown = []
 
@@ -506,6 +511,50 @@ class B1Strategy(BaseStrategy):
         h_score = 1 if below_total <= 3 else 0
         score += h_score
         breakdown.append(f"破黄{below_total}:{h_score}")
+
+        # I 跳空扣分（建仓阶段出现跳空 = 节奏不健康）
+        if highs is None:
+            highs = self.am.high_array
+        if lows is None:
+            lows = self.am.low_array
+        i_score = 0
+        for jj in range(burst_idx + 2, n_total - 1):
+            if lows[jj - 1] > 0 and highs[jj] < lows[jj - 1]:
+                gap_pct = (lows[jj - 1] - highs[jj]) / lows[jj - 1] * 100
+                if gap_pct >= 3.0:
+                    i_score -= 2
+                elif gap_pct >= 1.0:
+                    i_score -= 1
+            elif highs[jj - 1] > 0 and lows[jj] > highs[jj - 1]:
+                gap_pct = (lows[jj] - highs[jj - 1]) / highs[jj - 1] * 100
+                if gap_pct >= 3.0:
+                    i_score -= 1
+        score += i_score
+        breakdown.append(f"跳空:{i_score}")
+
+        # J 量价背离扣分（建仓阶段量价关系异常，排除主升阳线）
+        j_penalty = 0
+        for jj in range(burst_idx + 1, n_total - 1):
+            o, c = opens[jj], closes[jj]
+            if o <= 0:
+                continue
+            vr = self._prev_vol_ratio(volumes, jj)
+            chg = (c - o) / o * 100
+            if chg >= 5.0:
+                continue
+            if chg < 0:
+                drop = -chg
+                if drop >= 2.5 and vr >= 1.5:
+                    j_penalty -= 2
+                elif drop >= 1.5 and vr >= 1.2:
+                    j_penalty -= 1
+            else:
+                if chg >= 2.0 and vr <= 0.4:
+                    j_penalty -= 1
+                elif chg >= 2.0 and vr >= 2.5:
+                    j_penalty -= 1
+        score += j_penalty
+        breakdown.append(f"量价:{j_penalty}")
 
         return score, breakdown
 

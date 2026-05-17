@@ -206,6 +206,7 @@ def check_b1(symbol: str, end_date: str):
         cs, cb = B1Strategy._compute_score(
             stub, ci, closes, opens, volumes, yellow,
             dif_arr, dea_arr, j_arr, n_total,
+            highs, lows,
         )
         if cs >= B1Strategy.score_threshold:
             burst_idx = ci
