@@ -89,7 +89,7 @@ def _step_fetch_data(date: str, source: str):
 
 def _step_scan(date: str, strategy: str) -> list:
     """全市场扫描"""
-    from scanner.scanner import Scanner
+    from api.scanner.scanner import Scanner
 
     # 读取股票列表
     stock_list_file = settings.STOCK_LIST_CACHE
@@ -117,7 +117,7 @@ def _step_scan(date: str, strategy: str) -> list:
 
 def _step_generate_charts(candidates: list, date: str):
     """生成K线图"""
-    from visualizer.chart_generator import ChartGenerator
+    from api.visualizer.chart_generator import ChartGenerator
 
     generator = ChartGenerator()
     chart_paths = generator.generate_batch(candidates, date)

@@ -68,8 +68,8 @@ T+1开盘执行             自动执行环节1-4
 |------|------|
 | `fetcher/` | 数据获取（AkShareDataFetcher / BaoStockDataFetcher） |
 | `adapter/` | CSV → vnpy BarData 转换，导入 SQLite |
-| `scanner/` | 全市场策略筛选，输出候选股票 JSON |
-| `visualizer/` | K线图生成，可扩展面板（TrendLinePanel, KDJPanel） |
+| `api/scanner/` | 全市场策略筛选，输出候选股票 JSON |
+| `api/visualizer/` | K线图生成，可扩展面板（TrendLinePanel, KDJPanel） |
 | `llm_scorer/` | Claude API 两阶段打分（表格筛选 + 图片精选） |
 | `indicator/` | 技术指标纯函数（KDJ、知行趋势、振幅） |
 | `strategy/` | vnpy CTA 策略（BaseStrategy + B1Strategy） |
