@@ -10,7 +10,7 @@ from typing import List, Optional
 import pandas as pd
 
 from api.config import settings
-from indicator.indicators import calculate_KDJ, calculate_zx_trend, calculate_amplitude
+from api.indicator.indicators import calculate_KDJ, calculate_zx_trend, calculate_amplitude
 from api.schemas.kline_constants import KLineConstants
 from api.utils.utils import _normalize_stock_code
 

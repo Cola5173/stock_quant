@@ -131,8 +131,8 @@ def _step_llm_score(candidates: list, date: str):
         logger.warning("未设置 CLAUDE_API_KEY，跳过 LLM 打分")
         return
 
-    from llm_scorer.scorer import TwoStageScorer
-    from llm_scorer.clients.claude_client import ClaudeClient
+    from api.llm_scorer.scorer import TwoStageScorer
+    from api.llm_scorer.clients.claude_client import ClaudeClient
 
     client = ClaudeClient(api_key=api_key)
     scorer = TwoStageScorer(client)

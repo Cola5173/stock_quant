@@ -9,7 +9,7 @@ import re
 import time
 from typing import List
 
-from llm_scorer.clients.base import LLMClient
+from api.llm_scorer.clients.base import LLMClient
 
 logger = logging.getLogger(__name__)
 

@@ -17,9 +17,9 @@ API_PORT = int(_os.getenv("API_PORT", "7088"))
 
 
 DATA_DIR = _abs("data")
-RESOURCE_DIR = _abs("resource")
-STOCK_CODE_FILE = _abs("resource/stock_code.csv")
-STOCK_NAMES_FILE = _abs("resource/stock_names.csv")
+RESOURCE_DIR = _abs("api/resource")
+STOCK_CODE_FILE = _abs("api/resource/stock_code.csv")
+STOCK_NAMES_FILE = _abs("api/resource/stock_names.csv")
 STRATEGY_DIR = _abs("strategy")
 REFERENCE_STOCK = "sh.000001"
 
