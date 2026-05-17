@@ -5,7 +5,46 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
+import pandas as pd
+
+from api.config import settings
+
 logger = logging.getLogger(__name__)
+
+# 内存缓存：{(code, date_str): result_dict}
+_info_cache: Dict[tuple, Dict[str, Any]] = {}
+
+
+def _is_trading_day_today() -> bool:
+    """判断今天是否为交易日"""
+    try:
+        import chinese_calendar as calendar
+        return calendar.is_workday(datetime.now())
+    except ImportError:
+        return datetime.now().weekday() < 5
+
+
+def _load_latest_from_csv(code: str) -> Dict[str, Any]:
+    """从本地 CSV 读取最新一条行情数据作为兜底"""
+    csv_path = os.path.join(settings.DATA_DIR, f"{code}.csv")
+    if not os.path.exists(csv_path):
+        return {}
+    try:
+        df = pd.read_csv(csv_path, parse_dates=["date"])
+        if df.empty:
+            return {}
+        row = df.sort_values("date").iloc[-1]
+        out: Dict[str, Any] = {"股票代码": code}
+        if "close" in row:
+            out["最新"] = float(row["close"])
+        if "volume" in row:
+            out["成交量"] = float(row["volume"])
+        if "amount" in row:
+            out["成交额"] = float(row["amount"])
+        return out
+    except Exception as e:
+        logger.debug(f"读取本地 CSV 失败 {code}: {e}")
+        return {}
 
 
 @contextlib.contextmanager
@@ -266,55 +305,67 @@ def get_stock_info(code: str) -> Optional[Dict[str, Any]]:
     """
     统一入口：
     - 指数（idx_ 前缀）：降级链 BaoStock → Tushare → AkShare
-    - 个股：akshare EM 优先，失败降级 Tushare + 巨潮公司概况
+    - 个股：非交易日用本地 CSV 兜底，交易日走 API（带缓存）
     """
     if _is_index(code):
         return _get_index_info(code)
 
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    cache_key = (code, today_str)
+
+    if cache_key in _info_cache:
+        return _info_cache[cache_key]
+
     try:
         result: Dict[str, Any] = {}
+        is_trading = _is_trading_day_today()
 
-        # 1. 行情数据：优先 akshare EM
-        em_data = _fetch_akshare_em(code)
-        if em_data:
-            result.update(em_data)
+        if is_trading:
+            em_data = _fetch_akshare_em(code)
+            if em_data:
+                result.update(em_data)
+            else:
+                result.update(_fetch_tushare_market(code))
         else:
-            # 降级到 Tushare
-            result.update(_fetch_tushare_market(code))
+            result.update(_load_latest_from_csv(code))
+            logger.info(f"非交易日，{code} 使用本地 CSV 数据")
 
-        # 2. 巨潮：公司全称、主营业务、法人、注册资本、机构简介等
-        try:
-            import akshare as ak
-            with _no_proxy():
-                df_cn = ak.stock_profile_cninfo(symbol=code)
-            if df_cn is not None and not df_cn.empty:
-                row = df_cn.iloc[0]
-                field_map = {
-                    "公司名称": "company_name",
-                    "英文名称": "company_name_en",
-                    "A股简称": "short_name",
-                    "法人代表": "legal_representative",
-                    "注册资金": "reg_capital",
-                    "成立日期": "established_date",
-                    "上市日期": "listed_date",
-                    "官方网站": "website",
-                    "电子邮箱": "email",
-                    "联系电话": "telephone",
-                    "注册地址": "reg_address",
-                    "办公地址": "office_address",
-                    "主营业务": "main_business",
-                    "经营范围": "business_scope",
-                    "机构简介": "introduction",
-                    "所属市场": "market",
-                    "曾用简称": "former_name",
-                }
-                for cn_key, en_key in field_map.items():
-                    val = row.get(cn_key)
-                    if val is not None and str(val) != "None" and str(val).strip():
-                        result[en_key] = str(val).strip()
-        except Exception as e:
-            logger.debug(f"stock_profile_cninfo 失败: {e}")
+        # 巨潮公司概况（仅交易日请求，非交易日跳过）
+        if is_trading:
+            try:
+                import akshare as ak
+                with _no_proxy():
+                    df_cn = ak.stock_profile_cninfo(symbol=code)
+                if df_cn is not None and not df_cn.empty:
+                    row = df_cn.iloc[0]
+                    field_map = {
+                        "公司名称": "company_name",
+                        "英文名称": "company_name_en",
+                        "A股简称": "short_name",
+                        "法人代表": "legal_representative",
+                        "注册资金": "reg_capital",
+                        "成立日期": "established_date",
+                        "上市日期": "listed_date",
+                        "官方网站": "website",
+                        "电子邮箱": "email",
+                        "联系电话": "telephone",
+                        "注册地址": "reg_address",
+                        "办公地址": "office_address",
+                        "主营业务": "main_business",
+                        "经营范围": "business_scope",
+                        "机构简介": "introduction",
+                        "所属市场": "market",
+                        "曾用简称": "former_name",
+                    }
+                    for cn_key, en_key in field_map.items():
+                        val = row.get(cn_key)
+                        if val is not None and str(val) != "None" and str(val).strip():
+                            result[en_key] = str(val).strip()
+            except Exception as e:
+                logger.debug(f"stock_profile_cninfo 失败: {e}")
 
+        if result:
+            _info_cache[cache_key] = result
         return result if result else None
     except Exception as e:
         logger.warning(f"获取 {code} 个股信息失败: {e}")
