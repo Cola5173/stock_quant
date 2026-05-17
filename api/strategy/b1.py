@@ -1,6 +1,6 @@
 """
 B1 策略
-异动突破 + 回踩企稳 买入策略
+异动突破 + 回踩企稳 买入策略（含放飞盈利分批减仓）
 
 买入条件:
   基本条件（必须全部满足）：
@@ -19,17 +19,24 @@ B1 策略
     G 跌破黄线快速收回（≤2 天回）: +1
     H 破黄总天数 ≤3: +1
 
-卖出条件（任一触发）：
-1. 连续2天收盘低于大哥黄
-2. 跌破动态止损价（买入时计算 + 日内 low 触及即触发，成交价取 min(开盘价, 止损价)）：
-   - 买入价在趋势白上方且距离>3%：止损=买入当天最低价
-   - 买入价在趋势白上方且距离≤3%：止损=趋势白
-   - 买入价在趋势白下方且距离大哥黄>3%：止损=买入当天最低价
-   - 买入价在趋势白下方且距离大哥黄≤3%：止损=大哥黄
-3. 放量大阴线（量比>1.5 且 跌幅>5%）
-4. 盈利>=15%后，从最高点回撤超1/3（动态回撤止盈）
-5. J>90 且趋势白拐头向下 且盈利>5% 且最高盈利<15%（短线止盈）
-6. 已脱离成本区（持仓最高盈利>=15%）后，连续2天收盘低于趋势白（主升阶段趋势结束）
+卖出条件（三层优先级）：
+  Layer 1 — 强制退出（全仓清出）：
+    1. 日内跌破止损价
+    2. 放量大阴线（量比>1.5 且 跌幅>5%）
+    3. 连续2天收盘低于大哥黄
+  Layer 2 — 趋势退出（全仓清出，仅整笔盈利时触发破白）：
+    4. 主升回撤1/3止盈（盈利>=15%后从峰值回撤超1/3）
+    5. J高位+白拐头短线止盈
+    6. 连续2天破白线（仅当整笔交易含已减仓部分盈利时触发）
+  Layer 3 — 放飞减仓（部分卖出，不清仓）：
+    7. 中大阳线（body > ATR * big_yang_atr_mult）时分批减仓
+       第一次减 original_volume * 1/3，第二次减 remaining * 1/2
+
+止损进化：
+  - 初始止损：趋势白/大哥黄/买入日低点（按距离判断）
+  - 第一次减仓后：止损提升到至少买入价（保本）
+  - 第二次减仓后：止损提升到至少趋势白（趋势保护）
+  - 原则：止损价只升不降
 """
 import numpy as np
 import pandas as pd
@@ -78,6 +85,11 @@ class B1Strategy(BaseStrategy):
     short_tp_j = 90
     short_tp_min_profit = 5.0
 
+    # 放飞减仓参数
+    big_yang_atr_mult = 1.5  # 中大阳线阈值 = body_pct > ATR_pct * mult
+    scale_out_1_ratio = 1.0 / 3.0  # 第一次减仓比例（占原始仓位）
+    scale_out_2_ratio = 0.5  # 第二次减仓比例（占剩余仓位）
+
     parameters = [
         "kdj_j_threshold", "red_ratio_min", "red_window_size",
         "burst_lookback_days", "burst_min_chg", "burst_max_chg", "burst_vol_ratio",
@@ -91,10 +103,12 @@ class B1Strategy(BaseStrategy):
         "sell_vol_ratio", "sell_drop_pct",
         "trailing_start_pct", "trailing_drawdown_ratio",
         "short_tp_j", "short_tp_min_profit",
+        "big_yang_atr_mult", "scale_out_1_ratio", "scale_out_2_ratio",
     ]
     variables = ["hold_days", "buy_price", "buy_day_low", "stop_loss_price",
                  "max_profit_pct", "below_yellow_count", "below_white_count",
-                 "bars_since_last_sell"]
+                 "bars_since_last_sell",
+                 "original_volume", "scale_stage", "realized_pnl"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
@@ -106,8 +120,11 @@ class B1Strategy(BaseStrategy):
         self.below_yellow_count = 0
         self.below_white_count = 0
         self.prev_trend_white = 0.0
-        # 9999 表示从未卖出过；卖出后重置为 0，每根 bar +1
         self.bars_since_last_sell = 9999
+        # 放飞减仓状态
+        self.original_volume = 0  # 原始买入股数
+        self.scale_stage = 0  # 减仓阶段（0=未减, 1=已减一次, 2=已减两次）
+        self.realized_pnl = 0.0  # 已实现盈亏（部分卖出累计）
 
     @staticmethod
     def _yellow_series(closes: np.ndarray) -> np.ndarray:
@@ -189,56 +206,91 @@ class B1Strategy(BaseStrategy):
         if self.pos > 0 and can_sell and not at_lower_limit:
             if self.buy_price <= 0:
                 return
-            sell_reason = ""
-            stop_triggered = False  # 标记是否仅由"日内触及止损"触发，决定成交价
             cur_profit = (bar.close_price - self.buy_price) / self.buy_price * 100
 
+            # --- 更新 below_yellow / below_white 计数 ---
             if bar.close_price < big_bro_yellow:
                 self.below_yellow_count += 1
             else:
                 self.below_yellow_count = 0
-            if self.below_yellow_count >= self.below_yellow_days_limit:
-                sell_reason = sell_reason or "连续2天破大哥黄"
-
             if bar.close_price < trend_white:
                 self.below_white_count += 1
             else:
                 self.below_white_count = 0
-            if (self.below_white_count >= self.below_white_days_limit
-                    and self.max_profit_pct >= self.main_up_profit_threshold):
-                sell_reason = sell_reason or "主升脱离成本破白清仓"
 
-            # 日内触及止损价立即触发（盘中实盘 stop loss 行为，不等收盘）
+            # --- Layer 1: 强制退出（全仓清出） ---
+            force_exit = ""
+            stop_triggered = False
+
             if self.stop_loss_price > 0 and bar.low_price <= self.stop_loss_price:
-                if not sell_reason:
-                    sell_reason = f"日内跌破止损价{self.stop_loss_price:.2f}"
-                    stop_triggered = True
+                force_exit = f"日内跌破止损价{self.stop_loss_price:.2f}"
+                stop_triggered = True
 
-            vol_ma5 = float(np.mean(volumes[-6:-1]))
-            cur_vol_ratio = bar.volume / vol_ma5 if vol_ma5 > 0 else 0
-            cur_drop = (bar.open_price - bar.close_price) / bar.open_price * 100
-            if cur_vol_ratio > self.sell_vol_ratio and cur_drop > self.sell_drop_pct:
-                sell_reason = sell_reason or f"放量大阴线(量比{cur_vol_ratio:.1f}/跌{cur_drop:.1f}%)"
+            if not force_exit:
+                vol_ma5 = float(np.mean(volumes[-6:-1]))
+                cur_vol_ratio = bar.volume / vol_ma5 if vol_ma5 > 0 else 0
+                cur_drop = (bar.open_price - bar.close_price) / bar.open_price * 100
+                if cur_vol_ratio > self.sell_vol_ratio and cur_drop > self.sell_drop_pct:
+                    force_exit = f"放量大阴线(量比{cur_vol_ratio:.1f}/跌{cur_drop:.1f}%)"
 
-            if self.max_profit_pct >= self.trailing_start_pct:
-                drawdown = self.max_profit_pct - cur_profit
-                if drawdown >= self.max_profit_pct * self.trailing_drawdown_ratio:
-                    sell_reason = sell_reason or f"主升回撤1/3止盈(峰值{self.max_profit_pct:.1f}%)"
+            if not force_exit and self.below_yellow_count >= self.below_yellow_days_limit:
+                force_exit = "连续2天破大哥黄"
 
-            if (j_val > self.short_tp_j
-                    and cur_profit > self.short_tp_min_profit
-                    and self.max_profit_pct < self.trailing_start_pct
-                    and trend_white < self.prev_trend_white):
-                sell_reason = sell_reason or f"J高位+白拐头短线止盈(盈利{cur_profit:.1f}%)"
-
-            if sell_reason:
-                # 止损触发：跳空低开按开盘价，否则按止损价；其他原因按收盘价
-                if stop_triggered:
-                    sell_price = min(bar.open_price, self.stop_loss_price)
-                else:
-                    sell_price = bar.close_price
-                self.sell_stock(sell_price, abs(self.pos), reason=sell_reason)
+            if force_exit:
+                sell_price = min(bar.open_price, self.stop_loss_price) if stop_triggered else bar.close_price * 10
+                self.sell_stock(sell_price, abs(self.pos), reason=force_exit)
                 self._reset_state()
+                self.prev_trend_white = trend_white
+                return
+
+            # --- Layer 2: 趋势退出（全仓清出） ---
+            trend_exit = ""
+
+            # 回撤止盈和 J 高短线止盈仅在未减仓时触发（减仓后放飞，靠破白退出）
+            if self.scale_stage == 0:
+                if self.max_profit_pct >= self.trailing_start_pct:
+                    drawdown = self.max_profit_pct - cur_profit
+                    if drawdown >= self.max_profit_pct * self.trailing_drawdown_ratio:
+                        trend_exit = f"主升回撤1/3止盈(峰值{self.max_profit_pct:.1f}%)"
+
+                if not trend_exit and (j_val > self.short_tp_j
+                        and cur_profit > self.short_tp_min_profit
+                        and self.max_profit_pct < self.trailing_start_pct
+                        and trend_white < self.prev_trend_white):
+                    trend_exit = f"J高位+白拐头短线止盈(盈利{cur_profit:.1f}%)"
+
+            # 破白清仓：仅当整笔交易（含已减仓部分）盈利时触发
+            if not trend_exit and self.below_white_count >= self.below_white_days_limit:
+                unrealized = (bar.close_price - self.buy_price) * abs(self.pos)
+                overall_pnl = self.realized_pnl + unrealized
+                if overall_pnl > 0:
+                    trend_exit = "整笔盈利+连续2天破白清仓"
+
+            if trend_exit:
+                self.sell_stock(bar.close_price * 10, abs(self.pos), reason=trend_exit)
+                self._reset_state()
+                self.prev_trend_white = trend_white
+                return
+
+            # --- Layer 3: 放飞减仓（部分卖出，不 reset） ---
+            if self.scale_stage < 2:
+                atr_val = self.indicator.atr(20)
+                if self._is_big_yang(bar, atr_val):
+                    if self.scale_stage == 0:
+                        sell_vol = int(self.original_volume * self.scale_out_1_ratio // 100) * 100
+                        reason = f"中大阳线减仓1/3(body>{self.big_yang_atr_mult:.1f}xATR)"
+                    else:
+                        remaining = abs(self.pos)
+                        sell_vol = int(remaining * self.scale_out_2_ratio // 100) * 100
+                        reason = f"中大阳线减仓1/2(body>{self.big_yang_atr_mult:.1f}xATR)"
+                    if sell_vol >= 100 and sell_vol < abs(self.pos):
+                        self.sell_stock(bar.close_price * 10, sell_vol, reason=reason)
+                        self.scale_stage += 1
+                        # 止损进化：只升不降
+                        if self.scale_stage == 1:
+                            self.stop_loss_price = max(self.stop_loss_price, self.buy_price)
+                        elif self.scale_stage == 2:
+                            self.stop_loss_price = max(self.stop_loss_price, trend_white)
 
             self.prev_trend_white = trend_white
             return
@@ -340,6 +392,8 @@ class B1Strategy(BaseStrategy):
         self.max_profit_pct = 0.0
         self.below_yellow_count = 0
         self.below_white_count = 0
+        self.scale_stage = 0
+        self.realized_pnl = 0.0
 
         # 计算止损价
         dist_pct = self.stop_loss_distance_pct / 100.0
@@ -468,13 +522,26 @@ class B1Strategy(BaseStrategy):
         self.max_profit_pct = 0.0
         self.below_yellow_count = 0
         self.below_white_count = 0
-        # 卖出后重置冷却计数：异动日索引必须在本次卖出之后才允许再买
         self.bars_since_last_sell = 0
+        self.original_volume = 0
+        self.scale_stage = 0
+        self.realized_pnl = 0.0
+
+    def _is_big_yang(self, bar: BarData, atr_val: float) -> bool:
+        if bar.close_price <= bar.open_price or bar.open_price <= 0:
+            return False
+        body_pct = (bar.close_price - bar.open_price) / bar.open_price * 100
+        atr_pct = atr_val / bar.open_price * 100 if bar.open_price > 0 else 0
+        return atr_pct > 0 and body_pct > self.big_yang_atr_mult * atr_pct
 
     def on_trade(self, trade):
         super().on_trade(trade)
         if trade.direction.value == "多":
             self.buy_price = trade.price
+            self.original_volume = int(trade.volume)
+        else:
+            if self.buy_price > 0:
+                self.realized_pnl += (trade.price - self.buy_price) * trade.volume
             self.hold_days = 0
             self.max_profit_pct = 0.0
             self.below_yellow_count = 0

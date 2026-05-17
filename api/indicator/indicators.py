@@ -207,3 +207,11 @@ class IndicatorCalculator:
     def amplitude(self) -> float:
         result = calculate_amplitude(self._df)
         return result["amplitude"]
+
+    def atr(self, period: int = 20) -> float:
+        """Average True Range — 衡量个股波动率，用于自适应"中大阳线"阈值"""
+        highs = self.am.high_array[-period:]
+        lows = self.am.low_array[-period:]
+        prev_closes = self.am.close_array[-(period + 1):-1]
+        tr = np.maximum(highs - lows, np.maximum(np.abs(highs - prev_closes), np.abs(lows - prev_closes)))
+        return float(np.mean(tr))
