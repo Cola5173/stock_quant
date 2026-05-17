@@ -72,3 +72,37 @@ export interface FetchTriggerResponse {
   started: boolean;
   message: string;
 }
+
+export interface SelectedStrategy {
+  key: string;
+  name: string;
+}
+
+export interface SelectedRecord {
+  date: string;
+  count: number;
+}
+
+export interface SelectedCandidate {
+  symbol: string;
+  name: string;
+  match_date: string;
+  close: number;
+  industry?: string;
+  score?: number;
+  indicators: {
+    kdj_j: number;
+    kdj_k: number;
+    kdj_d: number;
+    zx_white: number;
+    zx_yellow: number;
+    amplitude: number;
+  };
+}
+
+export interface SelectedDetail {
+  scan_date: string;
+  strategy: string;
+  candidates_count: number;
+  candidates: SelectedCandidate[];
+}

@@ -14,6 +14,7 @@ import { HomePage as HomePanel } from "@/components/home-page";
 import { StockInfoPanel } from "@/components/stock-info-panel";
 import { ChartToolbar, aggregateToWeekly, type Granularity, type TimeRange } from "@/components/chart-toolbar";
 import { SettingsPage } from "@/components/settings-page";
+import { ScreeningPage } from "@/components/screening-page";
 import type { BacktestRequest, BacktestResponse, StockItem } from "@/lib/types";
 
 function getDateRange(range: TimeRange): { start: string; end: string } {
@@ -220,10 +221,7 @@ export default function HomePage() {
 
           {/* 选股 */}
           {navActive === "screening" && (
-            <div className="max-w-2xl mx-auto mt-20 text-center">
-              <h2 className="text-2xl font-semibold text-zinc-300">选股</h2>
-              <p className="mt-2 text-zinc-500">功能开发中…</p>
-            </div>
+            <ScreeningPage />
           )}
 
           {/* 设置 */}

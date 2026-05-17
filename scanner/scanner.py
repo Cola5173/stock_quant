@@ -177,3 +177,26 @@ class Scanner:
 
         logger.info(f"候选股票已保存到 {output_path}")
         return output_path
+
+    def save_to_selected(self, candidates: List[dict], date: str) -> str:
+        """保存选股结果到 selected/{yyyy_mm_dd}_{strategy}/ 目录"""
+        from api.config.settings import PROJECT_ROOT
+        date_part = date.replace("-", "_")
+        folder_name = f"{date_part}_{self.strategy_name}"
+        folder_path = os.path.join(PROJECT_ROOT, "selected", folder_name)
+        os.makedirs(folder_path, exist_ok=True)
+
+        result = {
+            "scan_date": date,
+            "strategy": self.strategy_name,
+            "total_scanned": len(self.stock_list),
+            "candidates_count": len(candidates),
+            "candidates": candidates,
+        }
+
+        output_path = os.path.join(folder_path, "result.json")
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"选股结果已保存到 {output_path}")
+        return output_path

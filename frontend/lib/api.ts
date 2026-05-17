@@ -2,6 +2,7 @@ import type {
   StockItem, KlineBar, StrategyItem,
   BacktestRequest, BacktestResponse, HomeStats,
   FetchStatus, FetchTriggerResponse,
+  SelectedStrategy, SelectedRecord, SelectedDetail,
 } from "./types";
 import { API_BASE } from "./config";
 
@@ -34,4 +35,9 @@ export const api = {
   fetchLatest: (source = "akshare") =>
     http<FetchTriggerResponse>(`/api/fetch/latest?source=${source}`, { method: "POST" }),
   fetchStatus: () => http<FetchStatus>("/api/fetch/status"),
+  selectedStrategies: () => http<SelectedStrategy[]>("/api/selected/strategies"),
+  selectedRecords: (strategy: string) =>
+    http<SelectedRecord[]>(`/api/selected/${strategy}/records`),
+  selectedDetail: (strategy: string, date: string) =>
+    http<SelectedDetail>(`/api/selected/${strategy}/${date}`),
 };

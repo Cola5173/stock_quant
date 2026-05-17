@@ -53,6 +53,7 @@ env/
 
 # 数据文件（选股结果）
 data/
+selected/
 
 
 # 配置文件（可能包含敏感信息）
@@ -101,4 +102,4 @@ Desktop.ini
 
 .superpowers/
 .claude/
-
+.next/
