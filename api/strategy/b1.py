@@ -33,12 +33,12 @@ class B1Strategy(BaseStrategy):
     red_ratio_min = 50
     red_window_size = 21
 
-    burst_lookback_days = 30
-    burst_min_chg = 3.0
+    burst_lookback_days = 50
+    burst_min_chg = 2.5
     burst_max_chg = 13.0
     burst_vol_ratio = 1.3
 
-    stable_below_yellow_max = 3
+    stable_below_yellow_max = 5
     stable_drop_pct = 5.0
     stable_drop_vol_ratio = 1.5
 
@@ -173,7 +173,7 @@ class B1Strategy(BaseStrategy):
         if j_val >= self.kdj_j_threshold:
             return
 
-        # 条件4: 异动突破（窗口内最早一次"放量阳线 + 突破大哥黄"）
+        # 条件4: 异动突破（收集所有合规候选，c5 验证后取第一个通过的）
         N = self.burst_lookback_days
         n_total = len(closes)
         if n_total < N + 6:
@@ -181,7 +181,7 @@ class B1Strategy(BaseStrategy):
 
         yellow_arr = self._yellow_series(closes)
 
-        burst_idx = -1
+        candidates = []
         for i in range(max(5, n_total - N - 1), n_total - 1):
             o, c = opens[i], closes[i]
             if o <= 0 or c < o:
@@ -196,7 +196,33 @@ class B1Strategy(BaseStrategy):
                 continue
             if c <= yellow_arr[i]:
                 continue
-            burst_idx = i
+            candidates.append(i)
+
+        if not candidates:
+            return
+
+        # 条件5: 异动后企稳（无放量大阴线 + 跌破大哥黄天数受限）
+        # 从最早异动日往后试，找第一个能通过企稳验证的
+        burst_idx = -1
+        for ci in candidates:
+            below_count = 0
+            big_drop = False
+            for j in range(ci + 1, n_total - 1):
+                if closes[j] < yellow_arr[j]:
+                    below_count += 1
+                o, c = opens[j], closes[j]
+                if o <= 0:
+                    continue
+                drop_pct = (o - c) / o * 100
+                vol_r = self._prev_vol_ratio(volumes, j)
+                if drop_pct > self.stable_drop_pct and vol_r > self.stable_drop_vol_ratio:
+                    big_drop = True
+                    break
+            if big_drop:
+                continue
+            if below_count > self.stable_below_yellow_max:
+                continue
+            burst_idx = ci
             break
 
         if burst_idx < 0:
@@ -218,22 +244,6 @@ class B1Strategy(BaseStrategy):
         if total_amp <= 0:
             return
         if red_amp / total_amp * 100 < self.red_ratio_min:
-            return
-
-        # 条件5: 异动后企稳（无放量大阴线 + 跌破大哥黄天数受限）
-        below_count = 0
-        for i in range(burst_idx + 1, n_total - 1):
-            if closes[i] < yellow_arr[i]:
-                below_count += 1
-            o, c = opens[i], closes[i]
-            if o <= 0:
-                continue
-            drop_pct = (o - c) / o * 100
-            vol_r = self._prev_vol_ratio(volumes, i)
-            if drop_pct > self.stable_drop_pct and vol_r > self.stable_drop_vol_ratio:
-                return
-
-        if below_count > self.stable_below_yellow_max:
             return
 
         # 全部条件满足，买入
