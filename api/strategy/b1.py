@@ -21,7 +21,7 @@ B1 策略
 
 卖出条件（三层优先级）：
   Layer 1 — 强制退出（全仓清出）：
-    1. 日内跌破止损价
+    1. 收盘跌破止损价
     2. 放量大阴线（量比>1.5 且 跌幅>5%）
     3. 连续2天收盘低于大哥黄
   Layer 2 — 趋势退出（全仓清出，仅整笔盈利时触发破白）：
@@ -220,11 +220,9 @@ class B1Strategy(BaseStrategy):
 
             # --- Layer 1: 强制退出（全仓清出） ---
             force_exit = ""
-            stop_triggered = False
 
-            if self.stop_loss_price > 0 and bar.low_price <= self.stop_loss_price:
-                force_exit = f"日内跌破止损价{self.stop_loss_price:.2f}"
-                stop_triggered = True
+            if self.stop_loss_price > 0 and bar.close_price < self.stop_loss_price:
+                force_exit = f"收盘跌破止损价{self.stop_loss_price:.2f}"
 
             if not force_exit:
                 vol_ma5 = float(np.mean(volumes[-6:-1]))
@@ -237,8 +235,7 @@ class B1Strategy(BaseStrategy):
                 force_exit = "连续2天破大哥黄"
 
             if force_exit:
-                sell_price = min(bar.open_price, self.stop_loss_price) if stop_triggered else bar.close_price * 10
-                self.sell_stock(sell_price, abs(self.pos), reason=force_exit)
+                self.sell_stock(bar.close_price * 10, abs(self.pos), reason=force_exit)
                 self.prev_trend_white = trend_white
                 return
 
