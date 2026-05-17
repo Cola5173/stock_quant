@@ -7,9 +7,8 @@ B1 策略
     1. 多头格局：趋势白 > 大哥黄，收盘 > 大哥黄
     2. KDJ J < 15（超卖）
     3. 翻番过滤：最近 doubled_lookback 日内最高/最低 < doubled_ratio（已大幅上涨的不再买）
-    4. 卖出冷却：异动日必须出现在上次卖出之后（避免止损/止盈后立刻复买）
-    5. 异动突破：过去 N 日存在放量阳，前 5 天有过收<=黄，当日收>黄，涨幅2.5-13%，量比≥1.3
-    6. 异动后无放量大阴线（绝对底线）
+    4. 异动突破：过去 N 日存在放量阳，前 5 天有过收<=黄，当日收>黄，涨幅2.5-13%，量比≥1.3
+    5. 异动后无放量大阴线（绝对底线）
   多因子打分（总分 ≥ score_threshold）：
     A 红肥绿瘦比例: ≥50% +1, ≥60% +2, ≥70% +3
     B 水下金叉（DIF<0 上穿 DEA）: +1
@@ -292,13 +291,6 @@ class B1Strategy(BaseStrategy):
             if c <= yellow_arr[i]:
                 continue
             candidates.append(i)
-
-        # 卖出冷却：异动日必须出现在上次卖出之后
-        # 当前 bar 索引 = n_total - 1，距离当前 bar (n_total-1-ci) 步要 < bars_since_last_sell
-        if self.bars_since_last_sell < n_total:
-            cur_idx = n_total - 1
-            candidates = [ci for ci in candidates
-                          if (cur_idx - ci) < self.bars_since_last_sell]
 
         if not candidates:
             return

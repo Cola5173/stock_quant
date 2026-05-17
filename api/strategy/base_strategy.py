@@ -29,6 +29,9 @@ class BaseStrategy(CtaTemplate):
         self.trade_reasons: list = []
         self._pending_buy_reason: str = ""
         self._pending_sell_reason: str = ""
+        # 跟踪未撮合订单，避免重复下单时 limit 单堆积（vnpy CtaTemplate 不内置）
+        self._active_buy_orderids: list = []
+        self._active_sell_orderids: list = []
         self._extra_info = self._load_extra_info()
 
     def _load_extra_info(self) -> dict:
@@ -91,22 +94,32 @@ class BaseStrategy(CtaTemplate):
             self.buy(price, volume)
 
     def buy_full(self, price: float, reason: str = ""):
-        """A 股满仓买入：用全部可用资金（扣留佣金后）按 100 股取整买入"""
+        """A 股满仓买入：用全部可用资金（扣留佣金后）按 100 股取整买入。
+        使用 stop order 保证 next bar 按 max(price, open) 成交，避免跳空高开时 limit 单不撮合。"""
         if price <= 0 or self.cash <= 0:
             return
+        for oid in list(self._active_buy_orderids):
+            self.cancel_order(oid)
         rate = float(getattr(self.cta_engine, "rate", 0) or 0)
         affordable = self.cash / (price * (1 + rate))
         volume = int(affordable // 100) * 100
         if volume > 0:
             self._pending_buy_reason = reason
-            self.buy(price, volume)
+            vt_orderids = self.buy(price, volume, stop=True)
+            if vt_orderids:
+                self._active_buy_orderids.extend(vt_orderids)
 
     def sell_stock(self, price: float, volume: float, reason: str = ""):
-        """A 股卖出：最小 100 股"""
+        """A 股卖出。使用 stop order 保证 next bar 按 min(price, open) 成交。"""
         volume = int(volume // 100) * 100
-        if volume > 0:
-            self._pending_sell_reason = reason
-            self.sell(price, volume)
+        if volume <= 0:
+            return
+        for oid in list(self._active_sell_orderids):
+            self.cancel_order(oid)
+        self._pending_sell_reason = reason
+        vt_orderids = self.sell(price, volume, stop=True)
+        if vt_orderids:
+            self._active_sell_orderids.extend(vt_orderids)
 
     def on_trade(self, trade: TradeData):
         rate = float(getattr(self.cta_engine, "rate", 0) or 0)
@@ -129,7 +142,12 @@ class BaseStrategy(CtaTemplate):
         })
 
     def on_order(self, order: OrderData):
-        pass
+        # 订单结束（成交/撤销/拒绝）时从 active 列表移除，便于下次 buy_full/sell_stock 准确判断
+        if not order.is_active():
+            if order.vt_orderid in self._active_buy_orderids:
+                self._active_buy_orderids.remove(order.vt_orderid)
+            if order.vt_orderid in self._active_sell_orderids:
+                self._active_sell_orderids.remove(order.vt_orderid)
 
     def on_stop_order(self, stop_order: StopOrder):
         pass
