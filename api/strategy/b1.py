@@ -20,7 +20,11 @@ B1 策略
 
 卖出条件（任一触发）：
 1. 连续2天收盘低于大哥黄
-2. 持仓>=5天且亏损超5%（止损）
+2. 跌破动态止损价（买入时计算）：
+   - 买入价在趋势白上方且距离>3%：止损=买入当天最低价
+   - 买入价在趋势白上方且距离≤3%：止损=趋势白
+   - 买入价在趋势白下方且距离大哥黄>3%：止损=买入当天最低价
+   - 买入价在趋势白下方且距离大哥黄≤3%：止损=大哥黄
 3. 放量大阴线（量比>1.5 且 跌幅>5%）
 4. 盈利>=15%后，从最高点回撤超1/3（动态回撤止盈）
 5. J>90 且趋势白拐头向下 且盈利>5% 且最高盈利<15%（短线止盈）
@@ -58,8 +62,7 @@ class B1Strategy(BaseStrategy):
     # 多因子打分阈值
     score_threshold = 5
 
-    stop_loss_days = 5
-    stop_loss_pct = -5.0
+    stop_loss_distance_pct = 3.0
     below_yellow_days_limit = 2
     below_white_days_limit = 2
     main_up_profit_threshold = 15.0
@@ -77,19 +80,21 @@ class B1Strategy(BaseStrategy):
         "stable_below_yellow_max", "stable_drop_pct", "stable_drop_vol_ratio",
         "macd_cross_lookback", "divergence_price_max", "divergence_min_gap_days",
         "score_threshold",
-        "stop_loss_days", "stop_loss_pct",
+        "stop_loss_distance_pct",
         "below_yellow_days_limit", "below_white_days_limit", "main_up_profit_threshold",
         "sell_vol_ratio", "sell_drop_pct",
         "trailing_start_pct", "trailing_drawdown_ratio",
         "short_tp_j", "short_tp_min_profit",
     ]
-    variables = ["hold_days", "buy_price", "max_profit_pct",
-                 "below_yellow_count", "below_white_count"]
+    variables = ["hold_days", "buy_price", "buy_day_low", "stop_loss_price",
+                 "max_profit_pct", "below_yellow_count", "below_white_count"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
         self.hold_days = 0
         self.buy_price = 0.0
+        self.buy_day_low = 0.0
+        self.stop_loss_price = 0.0
         self.max_profit_pct = 0.0
         self.below_yellow_count = 0
         self.below_white_count = 0
@@ -177,8 +182,8 @@ class B1Strategy(BaseStrategy):
                     and self.max_profit_pct >= self.main_up_profit_threshold):
                 sell_reason = sell_reason or "主升脱离成本破白清仓"
 
-            if self.hold_days >= self.stop_loss_days and cur_profit < self.stop_loss_pct:
-                sell_reason = sell_reason or f"持仓{self.hold_days}天亏损{cur_profit:.1f}%止损"
+            if self.stop_loss_price > 0 and bar.close_price < self.stop_loss_price:
+                sell_reason = sell_reason or f"跌破止损价{self.stop_loss_price:.2f}"
 
             vol_ma5 = float(np.mean(volumes[-6:-1]))
             cur_vol_ratio = bar.volume / vol_ma5 if vol_ma5 > 0 else 0
@@ -292,10 +297,26 @@ class B1Strategy(BaseStrategy):
         reason = f"B1异动突破[分{score}|" + " ".join(breakdown) + "]"
         self.buy_full(bar.close_price, reason=reason)
         self.buy_price = bar.close_price
+        self.buy_day_low = bar.low_price
         self.hold_days = 0
         self.max_profit_pct = 0.0
         self.below_yellow_count = 0
         self.below_white_count = 0
+
+        # 计算止损价
+        dist_pct = self.stop_loss_distance_pct / 100.0
+        if bar.close_price >= trend_white:
+            gap = (bar.close_price - trend_white) / bar.close_price
+            if gap > dist_pct:
+                self.stop_loss_price = bar.low_price
+            else:
+                self.stop_loss_price = trend_white
+        else:
+            gap = (bar.close_price - big_bro_yellow) / bar.close_price
+            if abs(gap) > dist_pct:
+                self.stop_loss_price = bar.low_price
+            else:
+                self.stop_loss_price = big_bro_yellow
 
     def _compute_score(self, burst_idx, closes, opens, volumes, yellow_arr,
                        dif_arr, dea_arr, j_arr, n_total):
@@ -404,6 +425,8 @@ class B1Strategy(BaseStrategy):
     def _reset_state(self):
         self.hold_days = 0
         self.buy_price = 0.0
+        self.buy_day_low = 0.0
+        self.stop_loss_price = 0.0
         self.max_profit_pct = 0.0
         self.below_yellow_count = 0
         self.below_white_count = 0
