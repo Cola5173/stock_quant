@@ -8,10 +8,7 @@ import { cn } from "@/lib/utils";
 import type { SelectedDetail } from "@/lib/types";
 
 const STRATEGY_TABS = [
-  { key: "b1", label: "趋势回调-b1", desc: "在上升趋势的回调阶段买入，获取一个波段的收益" },
-  { key: "b2", label: "趋势回调确认-b2", desc: "趋势回调确认后买入，更高确定性" },
-  { key: "zxt", label: "砖形图", desc: "基于砖形图形态识别买入信号" },
-  { key: "dz", label: "单针", desc: "单针探底形态识别" },
+  { key: "b1", label: "b1"},
 ];
 
 export function ScreeningPage() {
@@ -105,7 +102,6 @@ export function ScreeningPage() {
                 <th className="px-4 py-3 font-medium w-12">#</th>
                 <th className="px-4 py-3 font-medium">代码</th>
                 <th className="px-4 py-3 font-medium">名称</th>
-                <th className="px-4 py-3 font-medium">行业</th>
                 <th className="px-4 py-3 font-medium text-right">评分</th>
               </tr>
             </thead>
@@ -115,7 +111,6 @@ export function ScreeningPage() {
                   <td className="px-4 py-2.5 text-zinc-500">{i + 1}</td>
                   <td className="px-4 py-2.5 text-zinc-200">{c.symbol}</td>
                   <td className="px-4 py-2.5 text-zinc-200">{c.name}</td>
-                  <td className="px-4 py-2.5 text-zinc-400">{c.industry ?? "-"}</td>
                   <td className="px-4 py-2.5 text-right text-zinc-200">{c.score != null ? c.score : "-"}</td>
                 </tr>
               ))}
@@ -133,9 +128,9 @@ export function ScreeningPage() {
 }
 
 function handleDownload(detail: SelectedDetail) {
-  const header = "序号,代码,名称,行业,评分\n";
+  const header = "序号,代码,名称,评分\n";
   const rows = detail.candidates
-    .map((c, i) => `${i + 1},${c.symbol},${c.name},${c.industry ?? ""},${c.score ?? ""}`)
+    .map((c, i) => `${i + 1},${c.symbol},${c.name},${c.score ?? ""}`)
     .join("\n");
   const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
