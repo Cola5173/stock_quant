@@ -23,6 +23,30 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.config import settings
 from api.schemas.kline_constants import KLineConstants
 from api.strategy.b1 import B1Strategy
+from api.indicator.indicators import calculate_KDJ, calculate_amplitude
+
+
+_NAME_MAP: dict = {}
+
+
+def _load_name_map() -> dict:
+    """加载 stock_names.csv 为 {symbol: name} 映射"""
+    global _NAME_MAP
+    if _NAME_MAP:
+        return _NAME_MAP
+    csv_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "api", "resource", "stock_names.csv"
+    )
+    if not os.path.exists(csv_path):
+        return {}
+    try:
+        df = pd.read_csv(csv_path, dtype={"symbol": str})
+        _NAME_MAP = dict(zip(df["symbol"].astype(str).str.strip(),
+                             df["name"].astype(str).str.strip()))
+    except Exception:
+        _NAME_MAP = {}
+    return _NAME_MAP
 
 
 class _ParamStub:
@@ -53,6 +77,7 @@ def list_symbols() -> list:
 def check_one(args: tuple):
     """对单只股票在 end_date 应用完整 B1 买入逻辑，匹配则返回候选 dict，否则 None。"""
     symbol, end_date = args
+    name_map = _load_name_map()
     csv_path = os.path.join(settings.DATA_DIR, f"{symbol}.csv")
     if not os.path.exists(csv_path):
         return None
@@ -172,17 +197,28 @@ def check_one(args: tuple):
     if burst_idx < 0:
         return None
 
+    try:
+        kdj_full = calculate_KDJ(df)
+        amp = calculate_amplitude(df)
+    except Exception:
+        kdj_full = {"K": 0.0, "D": 0.0, "J": cur_j}
+        amp = {"amplitude": 0.0}
+
     return {
         "symbol": symbol,
+        "name": name_map.get(symbol, symbol),
         "match_date": end_date,
         "close": round(cur_close, 2),
         "score": int(score),
         "breakdown": breakdown,
         "burst_date": df[KLineConstants.DATE].iloc[burst_idx].date().isoformat(),
         "indicators": {
-            "kdj_j": round(cur_j, 2),
+            "kdj_j": float(kdj_full.get("J", round(cur_j, 2))),
+            "kdj_k": float(kdj_full.get("K", 0.0)),
+            "kdj_d": float(kdj_full.get("D", 0.0)),
             "zx_white": round(cur_white, 2),
             "zx_yellow": round(cur_yellow, 2),
+            "amplitude": float(amp.get("amplitude", 0.0)),
         },
     }
 
