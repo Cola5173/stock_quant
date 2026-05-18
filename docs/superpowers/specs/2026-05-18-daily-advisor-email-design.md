@@ -75,7 +75,7 @@
 
 冷却规则：advisor 启动时读取 `data/closed_trades.json`，按时间倒序统计**最近全清交易**：
 
-- 连续 2 笔 `pnl_pct < 0` → 进入 10 个交易日冷却（`cooldown_until = today_index + 15`，与回测一致）
+- 连续 2 笔 `pnl_pct < 0` → 进入冷却（`cooldown_until = today_index + 15`，即触发日起 15 个交易日内禁止买入，与回测 `portfolio_b1_top2.py:353` 一致）
 - 出现一笔 `pnl_pct ≥ 0` → 计数清零，冷却失效
 - 冷却中 advisor 不输出 buy 动作，决策 JSON 的 `warnings` 写入"连续亏损冷却中，剩余 X 个交易日"
 
@@ -263,8 +263,9 @@ daily_job(strategy='b1', source='akshare')
    │    ├─ 读 data/closed_trades.json → cooldown.compute_state(today_idx) → {active, until}
    │    ├─ 计算 market_strong / market_allow_buy（一律以 idx_000001_SH 为准）
    │    ├─ 派生 max_slots / single_position_pct（强 2/0.50 vs 弱 1/0.40）
-   │    ├─ 对每只持仓：position_state.replay_state(pos, df_until_today)
-   │    │     → calc_sell_signal(replayed_pos, df, today, market_strong)
+   │    ├─ 对每只持仓：
+   │    │     1) position_state.replay_state(pos, df, buy_date → today-1)  # 还原派生状态
+   │    │     2) calc_sell_signal(replayed_pos, df, today, market_strong)   # 最终判断
    │    │     → 命中即输出 sell 动作；未命中输出 hold
    │    ├─ slots_left = max_slots - len(holdings)
    │    ├─ 若 slots_left > 0 且 market_allow_buy 且 not cooldown.active：
@@ -284,7 +285,7 @@ Step 7 自身最终失败 → 仅 logger.error，不再嵌套发邮件
 
 ### 6.1 关键约束
 
-- **派生状态重放**：`replay_state(pos, df_until_today)` 从 `buy_date` **之后第一个交易日**开始遍历到今日（含），逐 bar 调用 `calc_sell_signal` 累加 `hold_days/tp_level_done/above_white_once/max_profit_pct`，但**忽略中间返回的卖出信号**。`buy_date` 当天 `hold_days=0`，第二个交易日 `hold_days=1`——与回测主循环 `portfolio_b1_top2.py:305-403` 的"i+1 才进入下一次 sell 评估"语义对齐。
+- **派生状态重放**：`replay_state(pos, df_until_today)` 从 **buy_date 当天**开始遍历到 **today 前一个交易日**（不含 today），逐 bar 调用 `calc_sell_signal` 累加 `hold_days/tp_level_done/above_white_once/max_profit_pct`，但**忽略中间返回的卖出信号**。随后 `decision_engine` 对 today 调用 `calc_sell_signal(replayed_pos, df, today, market_strong)` 做最终判断。Position 初始化 `hold_days=0`，buy_date 当天 replay 后 `hold_days=1`——与回测主循环中 buy_date 当天即进入 sell 评估的语义对齐。
 - **next_trading_date**：循环 `today + N 天` 直到 `chinese_calendar.is_workday=True`；不可用时退化为只跳过周末。
 - **estimated_price**：今日收盘 ×(1+0.001) 滑点估算，**仅作邮件提示**，不影响决策。邮件文案标注"实际以明日开盘为准"。
 - **大盘判定**：advisor 只用 `idx_000001_SH` 一刀切，与回测主循环 308-309 行一致；`api/portfolio/rules.py` 保留 `pick_index_for` 但 advisor 不调用（留给后续多板块版本）。
@@ -303,6 +304,7 @@ Step 7 自身最终失败 → 仅 logger.error，不再嵌套发邮件
 | `CLAUDE_API_KEY` 未设置 | step4 跳过，advisor 仍照常运行（不依赖 LLM） |
 | `QQ_EMAIL_PASS` 未设置 | step7 直接失败，仅落日志，无邮件 |
 | AkShare 数据是否前复权 | 默认前复权（与现有 fetcher 一致）。advisor 检测到当日 `close` 相对昨日跳变 > 5% 时输出 warning，提示用户检查除权除息后的 cost_price |
+| `idx_000001_SH.csv` 缺失 | cooldown 依赖交易日序列推算 `today_idx`；文件缺失时冷却不激活 + 输出 warning |
 
 ## 7. 配置
 
@@ -327,7 +329,7 @@ ADVISOR_CONFIG = {
     "single_position_pct_strong": 0.50,
     "single_position_pct_weak":   0.40,
     "cooldown_loss_streak":       2,    # 连续亏损笔数阈值
-    "cooldown_days":              10,   # 冷却交易日数
+    "cooldown_offset":            15,   # cooldown_until = today_idx + 15（触发日起 15 个交易日内禁止买入）
     "retry_times":                3,
     "retry_interval_sec":         60,
 }
@@ -360,7 +362,7 @@ ADVISOR_CONFIG = {
 | `closed_trades.json` 最近 2 笔全清亏损 → 冷却激活 | `tests/test_cooldown.py` | `cooldown.active==True` 且 wait 动作含"冷却中" |
 | 冷却中遇到一笔盈利 → 计数清零 | 同上 | `cooldown.active==False` |
 | `replay_state` 还原状态与回测一致 | `tests/test_position_state_replay.py` | 给定 buy_date + 后续 5 根 bar，`hold_days==5` 且 `tp_level_done` 与回测匹配 |
-| `replay_state` buy_date 当天 hold_days=0 边界 | 同上 | 仅传入到 buy_date 当天的数据，replay 后 `hold_days==0` |
+| `replay_state` buy_date 当天 hold_days=1 边界 | 同上 | 传入 buy_date 当天 1 根 bar，replay 后 `hold_days==1`（buy_date 当天即进入 sell 评估） |
 | `estimated_shares` 100 股向下取整 + 资金不足 | `tests/test_decision_engine.py` | 资金 < 100 股成本时不输出 buy |
 | email_sender 重试 + HTML 内容 + 纯文本 fallback | `tests/test_email_sender.py` | mock `smtplib.SMTP_SSL`，验证调用次数、`MIMEMultipart('alternative')` 结构 |
 
