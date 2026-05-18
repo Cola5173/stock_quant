@@ -76,10 +76,15 @@ def _load_index_dfs(start_date: str, end_date: str) -> dict:
             continue
         first = df[KLineConstants.DATE].min()
         last = df[KLineConstants.DATE].max()
-        if first > start or last < end:
+        if first > start:
             logger.warning(
-                f"指数 {idx_sym} 日期范围 {first.date()}~{last.date()} "
-                f"未覆盖回测区间 {start.date()}~{end.date()}，退化到 {INDEX_DEFAULT}"
+                f"指数 {idx_sym} 起始日 {first.date()} 晚于回测起 {start.date()}，退化到 {INDEX_DEFAULT}"
+            )
+            out[idx_sym] = None
+            continue
+        if last < start:
+            logger.warning(
+                f"指数 {idx_sym} 结束日 {last.date()} 早于回测起 {start.date()}，退化到 {INDEX_DEFAULT}"
             )
             out[idx_sym] = None
             continue
