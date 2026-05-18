@@ -63,8 +63,12 @@ def list_symbols() -> list:
 
 def compute_v2_score(close: float, trend_long: float, vol_ratio: float,
                     chg_pct: float, kdj_j: float, long_slope: float,
-                    white_above_yellow: float, volatility_10: float) -> tuple:
-    """返回 (score, breakdown_dict)。校准自 b1_v2 数据"""
+                    weights: dict = None) -> tuple:
+    """返回 (score, breakdown_dict)。校准自 b1_v2 数据。
+
+    weights: {dim_name: float} 可选权重字典，默认所有维度权重 1.0。
+    breakdown 中的子分不受权重影响（保留原始解释性），只影响最终 score 总和。
+    """
     breakdown = {}
     score = 0.0
 
@@ -133,6 +137,8 @@ def compute_v2_score(close: float, trend_long: float, vol_ratio: float,
     breakdown['趋势'] = round(s, 2)
     score += s
 
+    if weights:
+        score = sum(weights.get(k, 1.0) * v for k, v in breakdown.items())
     return round(score, 2), breakdown
 
 
@@ -190,13 +196,9 @@ def check_one(args: tuple):
     chg_pct = ((closes[-1] / closes[-2] - 1) * 100) if len(closes) >= 2 and closes[-2] > 0 else 0.0
     cur_j = float(j_arr[-1])
     long_slope = ((yellow[-1] / yellow[-6] - 1)) if len(yellow) >= 6 and yellow[-6] > 0 else 0.0
-    # 新增：短均线 vs 长均线（多头排列强度）
-    white_above_yellow = (cur_white / cur_yellow - 1) * 100
-    # 新增：10 日价格波动率（蓄势收敛特征）
-    volatility_10 = float(np.std(closes[-10:]) / np.mean(closes[-10:]) * 100) if len(closes) >= 10 else 0
 
     score, breakdown = compute_v2_score(cur_close, cur_yellow, vol_ratio, chg_pct, cur_j,
-                                         long_slope, white_above_yellow, volatility_10)
+                                         long_slope)
 
     return {
         "symbol": symbol,
