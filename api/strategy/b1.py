@@ -57,6 +57,8 @@ class B1Strategy(BaseStrategy):
     red_ratio_min = 50
     red_window_size = 21
 
+    yellow_buy_buffer = 1.00
+
     burst_lookback_days = 50
     burst_min_chg = 2.5
     burst_max_chg = 13.0
@@ -300,8 +302,8 @@ class B1Strategy(BaseStrategy):
         if self.pos > 0 or at_upper_limit:
             return
 
-        # 条件1: 多头格局
-        if trend_white <= big_bro_yellow or bar.close_price <= big_bro_yellow:
+        # 条件1: 多头格局（收盘需高于大哥黄一定 buffer，避免买在支撑位边缘）
+        if trend_white <= big_bro_yellow or bar.close_price < big_bro_yellow * self.yellow_buy_buffer:
             return
 
         # 条件2: J < 阈值（超卖）

@@ -102,12 +102,13 @@ def check_b1(symbol: str, end_date: str):
     cur_white = float(white[-1])
     cur_yellow = float(yellow[-1])
     print(f"\n[1] 多头格局")
-    print(f"    收盘={cur_close:.2f}  趋势白={cur_white:.2f}  大哥黄={cur_yellow:.2f}")
+    print(f"    收盘={cur_close:.2f}  趋势白={cur_white:.2f}  大哥黄={cur_yellow:.2f}  "
+          f"buffer={B1Strategy.yellow_buy_buffer}")
     if cur_white <= cur_yellow:
         print(f"    ❌ 卡掉：趋势白({cur_white:.2f}) <= 大哥黄({cur_yellow:.2f})")
         return
-    if cur_close <= cur_yellow:
-        print(f"    ❌ 卡掉：收盘({cur_close:.2f}) <= 大哥黄({cur_yellow:.2f})")
+    if cur_close < cur_yellow * B1Strategy.yellow_buy_buffer:
+        print(f"    ❌ 卡掉：收盘({cur_close:.2f}) < 大哥黄*buffer({cur_yellow*B1Strategy.yellow_buy_buffer:.2f})")
         return
     print("    ✓ 通过")
 

@@ -124,7 +124,7 @@ def check_one(args: tuple):
     cur_close = float(closes[-1])
     cur_white = float(white[-1])
     cur_yellow = float(yellow[-1])
-    if cur_white <= cur_yellow or cur_close <= cur_yellow:
+    if cur_white <= cur_yellow or cur_close < cur_yellow * B1Strategy.yellow_buy_buffer:
         return None
 
     cur_j = float(j_arr[-1])
