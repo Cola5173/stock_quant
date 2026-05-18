@@ -131,19 +131,23 @@ def market_allow_buy(date: str, index_df: pd.DataFrame) -> bool:
     return float(closes[-1]) >= float(yellow[-1])
 
 
-def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str):
-    """返回 (reason, sell_ratio) 元组：
-    - reason=None 表示不卖
-    - sell_ratio=1.0 表示全部卖出
-    - 0 < sell_ratio < 1 表示分批止盈
+def market_is_strong(date: str, index_df: pd.DataFrame) -> bool:
+    """大盘强势：close >= 大哥黄 且 大哥黄 5 日斜率 > 0"""
+    hist = get_history_until(index_df, date)
+    if hist.empty or len(hist) < 30:
+        return False
+    closes = hist[KLineConstants.CLOSE].values.astype(float)
+    yellow = B1Strategy._yellow_series(closes)
+    cond_close = float(closes[-1]) >= float(yellow[-1])
+    if len(yellow) >= 6 and float(yellow[-6]) > 0:
+        slope_5 = (float(yellow[-1]) / float(yellow[-6])) - 1
+    else:
+        slope_5 = 0.0
+    return cond_close and slope_5 > 0
 
-    优先级：
-    1. 跌破大哥黄 1 日 → 全清
-    2. 阴线放量 → 全清
-    3. 上穿趋势白后再跌破 → 全清
-    4. T+3 不涨 2% → 全清
-    5. 分批止盈（涨 +10/20/.../90%，每档卖剩余仓位 1/3）
-    """
+
+def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str, market_strong: bool = True):
+    """返回 (reason, sell_ratio) 元组"""
     bar = get_bar(df, date)
     if bar is None:
         return None, 0.0
@@ -169,9 +173,10 @@ def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str):
     if cur_close >= cur_white:
         pos.above_white_once = True
 
-    # 0. 硬止损 -7%
-    if cur_profit <= -7.0:
-        return f"硬止损(-7%, 当前{cur_profit:.2f}%)", 1.0
+    # 0. 硬止损：弱市 -4%，强市 -7%
+    stop_pct = -7.0 if market_strong else -4.0
+    if cur_profit <= stop_pct:
+        return f"硬止损({stop_pct:.0f}%, 当前{cur_profit:.2f}%)", 1.0
 
     # 1. 跌破大哥黄 1 日就出
     if cur_close < cur_yellow:
@@ -241,11 +246,14 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
     for i, today in enumerate(trading_days[:-1]):
         next_day = trading_days[i + 1]
 
+        market_ok = market_allow_buy(today, index_df)
+        market_strong = market_is_strong(today, index_df)
+
         # ===== 1. 检查持仓的卖出信号（T 日数据判断） =====
         sells_today = []  # [(sym, reason, ratio)]
         for sym, pos in list(positions.items()):
             df = load_csv(sym)
-            reason, ratio = calc_sell_signal(pos, df, today)
+            reason, ratio = calc_sell_signal(pos, df, today, market_strong)
             if reason:
                 sells_today.append((sym, reason, ratio))
 
@@ -279,10 +287,12 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
                     cash += pos.shares * sell_price
                 del positions[sym]
 
-        # ===== 3. 持仓不满 2 只 + 大盘允许 → 扫描候选补仓 =====
-        slots = 2 - len(positions)
+        # ===== 3. 持仓不满 → 扫描候选补仓
+        # 弱市最多持 1 只（仓位减半），强市持 2 只
+        max_slots = 2 if market_strong else 1
+        slots = max_slots - len(positions)
         if slots > 0:
-            if market_allow_buy(today, index_df):
+            if market_ok:
                 tasks = [(s, today) for s in symbols]
                 hits = []
                 for fut in as_completed({pool.submit(_scan_worker, t): t for t in tasks}):
