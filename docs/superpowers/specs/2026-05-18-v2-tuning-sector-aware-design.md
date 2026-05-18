@@ -74,17 +74,21 @@ def pick_index_for(symbol: str) -> str:
 
 回测启动时改为预加载所有指数 DataFrame 到字典 `index_dfs: Dict[str, pd.DataFrame]`，按需取用。
 
+加载阶段对每个指数做日期覆盖校验：起止日期必须涵盖回测区间，否则该指数 key 退化到 `INDEX_DEFAULT`（上证）并 `logger.warning`。
+
 #### 判断节奏改造
 
-`market_allow_buy(date, index_df)` 和 `market_is_strong(date, index_df)` 增加 `symbol` 参数：
+`market_allow_buy(date, index_df)` 和 `market_is_strong(date, index_df)` 增加 `symbol` 参数，函数体内逻辑保留不变（前者：`close >= 大哥黄`；后者：`close >= 大哥黄 且 大哥黄 5 日斜率 > 0`），仅替换索引数据来源：
 
 ```python
 def market_allow_buy(date: str, symbol: str, index_dfs: Dict[str, pd.DataFrame]) -> bool:
     idx = index_dfs[pick_index_for(symbol)]
+    # 沿用原 close >= 大哥黄 判断
     ...
 
 def market_is_strong(date: str, symbol: str, index_dfs: Dict[str, pd.DataFrame]) -> bool:
     idx = index_dfs[pick_index_for(symbol)]
+    # 沿用原 close >= 大哥黄 且 5 日斜率 > 0 判断
     ...
 ```
 
@@ -98,20 +102,15 @@ def market_is_strong(date: str, symbol: str, index_dfs: Dict[str, pd.DataFrame])
 
 **2. 持仓上限（决定补到 2 只还是 1 只）**
 
-按已持仓股票分别评估「市场强度」，再决定是否允许新候选进场：
+按候选股自身板块强度决定补仓上限：
 
 ```python
-held_strong = sum(1 for sym in positions
-                   if market_is_strong(today, sym, index_dfs))
-held_weak = len(positions) - held_strong
-
-# 候选股自身板块强度也算
 def can_add_slot(cand_symbol):
-    if not market_is_strong(today, cand_symbol, index_dfs):
-        # 候选所属板块弱：仅当现有持仓都强时还允许补 1 只
-        return len(positions) == 0 or (held_weak == 0 and len(positions) < 1)
-    # 候选所属板块强：照常补到 2 只上限
-    return len(positions) < 2
+    cand_strong = market_is_strong(today, cand_symbol, index_dfs)
+    if cand_strong:
+        return len(positions) < 2  # 候选板块强：可补到 2 只
+    else:
+        return len(positions) == 0  # 候选板块弱：仅空仓时补 1 只
 ```
 
 简化语义：
@@ -138,6 +137,7 @@ A 落地后跑一次 16 个月全区间回测，得到新的 `output/portfolio/b
 - 负组均值（pnl_pct ≤ 0 的交易）
 - Δ = 胜组 − 负组
 - 推荐方向：↑ if Δ > 0.5 / ↓ if Δ < −0.5 / − 不动
+- 推荐档位：直接根据 Δ 输出对应权重系数（×1.5/×1.2/×1.0/×0.8/×0.5）
 ```
 
 实现要点：脚本内复用 `scan_v2_style.compute_v2_score`，对每笔交易在其 `buy_date` 重新计算各维度得分（不是 score 总分，是各维度子分）。
