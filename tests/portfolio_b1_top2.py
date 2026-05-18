@@ -296,6 +296,8 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
     trades: list[TradeRecord] = []
     daily_values: list[dict] = []
     skipped_market_days = 0
+    consecutive_losses = 0
+    cooldown_until = -1
     t0 = datetime.now()
 
     pool = ProcessPoolExecutor(max_workers=workers)
@@ -303,13 +305,14 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
     for i, today in enumerate(trading_days[:-1]):
         next_day = trading_days[i + 1]
 
+        market_ok = market_allow_buy(today, INDEX_DEFAULT, index_dfs)
+        market_strong = market_is_strong(today, INDEX_DEFAULT, index_dfs)
+
         # ===== 1. 检查持仓的卖出信号（T 日数据判断） =====
         sells_today = []  # [(sym, reason, ratio)]
         for sym, pos in list(positions.items()):
             df = load_csv(sym)
-            # 持仓股票按自身板块判强弱（决定止损宽紧）
-            held_strong = market_is_strong(today, sym, index_dfs)
-            reason, ratio = calc_sell_signal(pos, df, today, held_strong)
+            reason, ratio = calc_sell_signal(pos, df, today, market_strong)
             if reason:
                 sells_today.append((sym, reason, ratio))
 
@@ -337,43 +340,38 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
                 hold_days=pos.hold_days, sell_reason=reason,
             ))
             pos.shares -= sell_shares
-            if pos.shares < 100:
+            full_clear = pos.shares < 100
+            if full_clear:
                 # 不足 100 股按全清处理
                 if pos.shares > 0:
                     cash += pos.shares * sell_price
                 del positions[sym]
+                # 全清亏损统计：连续 2 笔后触发 10 日冷却
+                if pnl_pct < 0:
+                    consecutive_losses += 1
+                    if consecutive_losses >= 2:
+                        cooldown_until = max(cooldown_until, i + 15)
+                        consecutive_losses = 0
+                else:
+                    consecutive_losses = 0
 
-        # ===== 3. 持仓不满 → 扫描候选补仓（按候选板块判强弱） =====
-        if len(positions) < 2:
+        # ===== 3. 上证一刀切 + 弱市半仓 + 连续亏损冷却 =====
+        max_slots = 2 if market_strong else 1
+        in_cooldown = i < cooldown_until
+        slots = max_slots - len(positions)
+        if slots > 0 and market_ok and not in_cooldown:
             tasks = [(s, today) for s in symbols]
             hits = []
             for fut in as_completed({pool.submit(_scan_worker, t): t for t in tasks}):
                 r = fut.result()
                 if r and r["symbol"] not in positions:
-                    # 板块过滤：候选所属板块 close >= 大哥黄 才入池
-                    if market_allow_buy(today, r["symbol"], index_dfs):
-                        hits.append(r)
+                    hits.append(r)
             hits.sort(key=lambda x: -x["score"])
-
-            # 按候选板块强弱决定能补几个 slot
-            picked = []
-            for cand in hits:
-                cand_strong = market_is_strong(today, cand["symbol"], index_dfs)
-                # 候选板块强：可补到 2 只
-                # 候选板块弱：仅在空仓时补 1 只
-                if cand_strong:
-                    if len(positions) + len(picked) < 2:
-                        picked.append(cand)
-                else:
-                    if len(positions) == 0 and len(picked) == 0:
-                        picked.append(cand)
-                if len(positions) + len(picked) >= 2:
-                    break
-
-            top = picked
+            top = hits[:slots]
 
             if top:
-                per_pos_cap = capital * 0.5
+                # 仓位：强市 50%/只，弱市 40%/只
+                per_pos_cap = capital * (0.50 if market_strong else 0.40)
                 for cand in top:
                     sym = cand["symbol"]
                     df = load_csv(sym)
@@ -403,6 +401,8 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
                         buy_day_low=buy_day_low,
                         initial_shares=shares,
                     )
+        elif slots > 0 and not market_ok:
+            skipped_market_days += 1
 
         # ===== 4. 记录次日净值 =====
         total = cash
