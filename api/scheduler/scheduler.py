@@ -69,7 +69,7 @@ class TradingScheduler:
 
     def _run_daily_job(self):
         """执行每日任务"""
-        from scheduler.jobs import daily_job
+        from api.scheduler.jobs import daily_job
         daily_job(strategy=self.strategy, source=self.source)
 
     def _setup_logging(self):
