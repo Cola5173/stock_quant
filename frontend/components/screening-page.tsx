@@ -29,8 +29,6 @@ export function ScreeningPage() {
     enabled: !!currentDate,
   });
 
-  const activeTab = STRATEGY_TABS.find((t) => t.key === activeStrategy);
-
   return (
     <div className="h-full flex flex-col p-6">
       {/* 策略 Tab 栏 */}
@@ -53,11 +51,6 @@ export function ScreeningPage() {
           </button>
         ))}
       </div>
-
-      {/* 策略描述 */}
-      {activeTab && (
-        <p className="text-zinc-500 text-sm mb-5">{activeTab.desc}</p>
-      )}
 
       {/* 日期标签行 */}
       {records.length > 0 && (
