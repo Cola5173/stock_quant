@@ -41,6 +41,55 @@ FEE = settings.FEE_CONFIG
 SLIPPAGE = 0.001
 INDEX_SYMBOL = "idx_000001_SH"
 
+INDEX_MAP = {
+    "60": "idx_000001_SH",
+    "00": "idx_399001_SZ",
+    "30": "idx_399006_SZ",
+    "68": "idx_000016_SH",
+}
+INDEX_DEFAULT = "idx_000001_SH"
+
+
+def pick_index_for(symbol: str) -> str:
+    """按代码前缀返回对应大盘指数 symbol。
+    60→上证, 00→深成, 30→创业, 68→科创(用上证50平替), 其他→上证兜底。
+    """
+    return INDEX_MAP.get(symbol[:2], INDEX_DEFAULT)
+
+
+def _load_index_dfs(start_date: str, end_date: str) -> dict:
+    """加载所有用到的指数 CSV，校验日期覆盖。
+    缺失或日期不覆盖的指数 key 退化到 INDEX_DEFAULT 并打印 warning。
+    返回 {idx_symbol: DataFrame}。
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    needed = set(INDEX_MAP.values()) | {INDEX_DEFAULT}
+    out = {}
+    start = pd.to_datetime(start_date)
+    end = pd.to_datetime(end_date)
+    for idx_sym in needed:
+        df = load_csv(idx_sym)
+        if df is None or df.empty:
+            logger.warning(f"指数 {idx_sym} 缺失，退化到 {INDEX_DEFAULT}")
+            out[idx_sym] = None
+            continue
+        first = df[KLineConstants.DATE].min()
+        last = df[KLineConstants.DATE].max()
+        if first > start or last < end:
+            logger.warning(
+                f"指数 {idx_sym} 日期范围 {first.date()}~{last.date()} "
+                f"未覆盖回测区间 {start.date()}~{end.date()}，退化到 {INDEX_DEFAULT}"
+            )
+            out[idx_sym] = None
+            continue
+        out[idx_sym] = df
+    default_df = out.get(INDEX_DEFAULT)
+    if default_df is None:
+        raise RuntimeError(f"INDEX_DEFAULT={INDEX_DEFAULT} 数据不可用，无法回测")
+    return {k: (v if v is not None else default_df) for k, v in out.items()}
+
+
 T3_HOLD_DAYS = 3
 T3_MIN_GAIN_PCT = 2.0
 TP_LEVELS = [10, 20, 30, 40, 50, 60, 70, 80, 90]
