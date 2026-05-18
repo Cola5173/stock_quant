@@ -24,3 +24,19 @@ for k, v in dfs.items():
     assert isinstance(v, pd.DataFrame), f"{k} 应为 DataFrame"
     assert len(v) > 0, f"{k} 应非空"
 print("_load_index_dfs: all OK")
+
+from tests.portfolio_b1_top2 import market_allow_buy, market_is_strong
+
+dfs = _load_index_dfs("2025-01-01", "2026-05-15")
+r1 = market_allow_buy("2025-05-15", "600000", dfs)
+r2 = market_allow_buy("2025-05-15", "300001", dfs)
+print(f"market_allow_buy 600000@2025-05-15 = {r1}")
+print(f"market_allow_buy 300001@2025-05-15 = {r2}")
+assert isinstance(r1, bool) and isinstance(r2, bool)
+
+s1 = market_is_strong("2025-05-15", "600000", dfs)
+s2 = market_is_strong("2025-05-15", "300001", dfs)
+print(f"market_is_strong 600000@2025-05-15 = {s1}")
+print(f"market_is_strong 300001@2025-05-15 = {s2}")
+assert isinstance(s1, bool) and isinstance(s2, bool)
+print("market_*: all OK")

@@ -170,9 +170,10 @@ def get_history_until(df: pd.DataFrame, date: str) -> pd.DataFrame:
     return df[df[KLineConstants.DATE] <= d].reset_index(drop=True)
 
 
-def market_allow_buy(date: str, index_df: pd.DataFrame) -> bool:
-    """大盘收盘 >= 大哥黄 才允许买入"""
-    hist = get_history_until(index_df, date)
+def market_allow_buy(date: str, symbol: str, index_dfs: dict) -> bool:
+    """大盘收盘 >= 大哥黄 才允许买入（按 symbol 选板块对应指数）。"""
+    idx = index_dfs[pick_index_for(symbol)]
+    hist = get_history_until(idx, date)
     if hist.empty or len(hist) < 30:
         return False
     closes = hist[KLineConstants.CLOSE].values.astype(float)
@@ -180,9 +181,10 @@ def market_allow_buy(date: str, index_df: pd.DataFrame) -> bool:
     return float(closes[-1]) >= float(yellow[-1])
 
 
-def market_is_strong(date: str, index_df: pd.DataFrame) -> bool:
-    """大盘强势：close >= 大哥黄 且 大哥黄 5 日斜率 > 0"""
-    hist = get_history_until(index_df, date)
+def market_is_strong(date: str, symbol: str, index_dfs: dict) -> bool:
+    """大盘强势：close >= 大哥黄 且 大哥黄 5 日斜率 > 0（按 symbol 选板块对应指数）。"""
+    idx = index_dfs[pick_index_for(symbol)]
+    hist = get_history_until(idx, date)
     if hist.empty or len(hist) < 30:
         return False
     closes = hist[KLineConstants.CLOSE].values.astype(float)
@@ -267,9 +269,10 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
     name_map = _load_name_map()
     symbols = list_symbols()
 
-    index_df = load_csv(INDEX_SYMBOL)
+    index_dfs = _load_index_dfs(start_date, end_date)
+    index_df = index_dfs[INDEX_DEFAULT]  # 用作 trading_days 抽取的参考
     if index_df is None:
-        print(f"未找到大盘数据 {INDEX_SYMBOL}.csv，回测中止")
+        print(f"未找到大盘数据 {INDEX_DEFAULT}.csv，回测中止")
         sys.exit(1)
 
     trading_days = index_df[
@@ -295,14 +298,13 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
     for i, today in enumerate(trading_days[:-1]):
         next_day = trading_days[i + 1]
 
-        market_ok = market_allow_buy(today, index_df)
-        market_strong = market_is_strong(today, index_df)
-
         # ===== 1. 检查持仓的卖出信号（T 日数据判断） =====
         sells_today = []  # [(sym, reason, ratio)]
         for sym, pos in list(positions.items()):
             df = load_csv(sym)
-            reason, ratio = calc_sell_signal(pos, df, today, market_strong)
+            # 持仓股票按自身板块判强弱（决定止损宽紧）
+            held_strong = market_is_strong(today, sym, index_dfs)
+            reason, ratio = calc_sell_signal(pos, df, today, held_strong)
             if reason:
                 sells_today.append((sym, reason, ratio))
 
@@ -336,55 +338,66 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
                     cash += pos.shares * sell_price
                 del positions[sym]
 
-        # ===== 3. 持仓不满 → 扫描候选补仓
-        # 弱市最多持 1 只（仓位减半），强市持 2 只
-        max_slots = 2 if market_strong else 1
-        slots = max_slots - len(positions)
-        if slots > 0:
-            if market_ok:
-                tasks = [(s, today) for s in symbols]
-                hits = []
-                for fut in as_completed({pool.submit(_scan_worker, t): t for t in tasks}):
-                    r = fut.result()
-                    if r and r["symbol"] not in positions:
+        # ===== 3. 持仓不满 → 扫描候选补仓（按候选板块判强弱） =====
+        if len(positions) < 2:
+            tasks = [(s, today) for s in symbols]
+            hits = []
+            for fut in as_completed({pool.submit(_scan_worker, t): t for t in tasks}):
+                r = fut.result()
+                if r and r["symbol"] not in positions:
+                    # 板块过滤：候选所属板块 close >= 大哥黄 才入池
+                    if market_allow_buy(today, r["symbol"], index_dfs):
                         hits.append(r)
-                hits.sort(key=lambda x: -x["score"])
-                top = hits[:slots]
+            hits.sort(key=lambda x: -x["score"])
 
-                if top:
-                    per_pos_cap = capital * 0.5
-                    for cand in top:
-                        sym = cand["symbol"]
-                        df = load_csv(sym)
-                        bar_next = get_bar(df, next_day)
-                        if bar_next is None:
-                            continue
-                        buy_price = float(bar_next[KLineConstants.OPEN]) * (1 + SLIPPAGE)
-                        if buy_price <= 0:
-                            continue
-                        budget = min(per_pos_cap, cash / max(1, slots))
-                        shares = int(budget / buy_price // 100) * 100
-                        if shares <= 0:
-                            continue
-                        cost = shares * buy_price
-                        fee = buy_fee(shares, buy_price)
-                        if cash < cost + fee:
-                            continue
-                        cash -= (cost + fee)
-                        bar_today = get_bar(df, today)
-                        buy_day_low = float(bar_today[KLineConstants.LOW]) if bar_today is not None else buy_price
-                        positions[sym] = Position(
-                            symbol=sym,
-                            name=name_map.get(sym, sym),
-                            shares=shares,
-                            cost_price=buy_price,
-                            buy_date=next_day,
-                            buy_day_low=buy_day_low,
-                            initial_shares=shares,
-                        )
-                        slots -= 1
-            else:
-                skipped_market_days += 1
+            # 按候选板块强弱决定能补几个 slot
+            picked = []
+            for cand in hits:
+                cand_strong = market_is_strong(today, cand["symbol"], index_dfs)
+                # 候选板块强：可补到 2 只
+                # 候选板块弱：仅在空仓时补 1 只
+                if cand_strong:
+                    if len(positions) + len(picked) < 2:
+                        picked.append(cand)
+                else:
+                    if len(positions) == 0 and len(picked) == 0:
+                        picked.append(cand)
+                if len(positions) + len(picked) >= 2:
+                    break
+
+            top = picked
+
+            if top:
+                per_pos_cap = capital * 0.5
+                for cand in top:
+                    sym = cand["symbol"]
+                    df = load_csv(sym)
+                    bar_next = get_bar(df, next_day)
+                    if bar_next is None:
+                        continue
+                    buy_price = float(bar_next[KLineConstants.OPEN]) * (1 + SLIPPAGE)
+                    if buy_price <= 0:
+                        continue
+                    budget = min(per_pos_cap, cash / max(1, len(top)))
+                    shares = int(budget / buy_price // 100) * 100
+                    if shares <= 0:
+                        continue
+                    cost = shares * buy_price
+                    fee = buy_fee(shares, buy_price)
+                    if cash < cost + fee:
+                        continue
+                    cash -= (cost + fee)
+                    bar_today = get_bar(df, today)
+                    buy_day_low = float(bar_today[KLineConstants.LOW]) if bar_today is not None else buy_price
+                    positions[sym] = Position(
+                        symbol=sym,
+                        name=name_map.get(sym, sym),
+                        shares=shares,
+                        cost_price=buy_price,
+                        buy_date=next_day,
+                        buy_day_low=buy_day_low,
+                        initial_shares=shares,
+                    )
 
         # ===== 4. 记录次日净值 =====
         total = cash
