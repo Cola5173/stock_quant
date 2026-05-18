@@ -61,3 +61,29 @@ LOG_DIR = _abs("logs")
 
 # 全市场股票列表缓存
 STOCK_LIST_CACHE = _abs("data/stock_list.csv")
+
+# ====== Advisor 配置 ======
+POSITIONS_FILE = _abs("data/positions.json")
+CLOSED_TRADES_FILE = _abs("data/closed_trades.json")
+DECISIONS_DIR = _abs("output/decisions")
+
+EMAIL_CONFIG = {
+    "host": "smtp.qq.com",
+    "port": 465,
+    "use_ssl": True,
+    "user": _os.getenv("QQ_EMAIL_USER", ""),
+    "password": _os.getenv("QQ_EMAIL_PASS", ""),
+    "to": _os.getenv("QQ_EMAIL_TO", ""),
+    "sender_name": "Stock Quant Daily",
+}
+
+ADVISOR_CONFIG = {
+    "max_slots_strong": 2,
+    "max_slots_weak": 1,
+    "single_position_pct_strong": 0.50,
+    "single_position_pct_weak": 0.40,
+    "cooldown_loss_streak": 2,
+    "cooldown_offset": 15,
+    "retry_times": 3,
+    "retry_interval_sec": 60,
+}

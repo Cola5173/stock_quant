@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.config import settings
 from api.schemas.kline_constants import KLineConstants
-from api.strategy.b1 import B1Strategy
+from api.portfolio.rules import _yellow_series, _j_series
 
 
 _NAME_MAP: dict = {}
@@ -190,9 +190,9 @@ def check_one(args: tuple):
         if pct >= limit - 0.1:
             return None
 
-    yellow = B1Strategy._yellow_series(closes)
+    yellow = _yellow_series(closes)
     white = pd.Series(closes).ewm(span=10, adjust=False).mean().ewm(span=10, adjust=False).mean().values
-    j_arr = B1Strategy._j_series(highs, lows, closes)
+    j_arr = _j_series(highs, lows, closes)
     cur_close = float(closes[-1])
     cur_yellow = float(yellow[-1])
     cur_white = float(white[-1])

@@ -65,10 +65,19 @@ def daily_job(strategy: str = "b1", source: str = "akshare"):
         logger.info("Step 5: 生成交易信号...")
         _step_generate_signals(today)
 
+        # Step 6: 决策
+        logger.info("Step 6: 生成决策...")
+        decision = _step_decide(today)
+
+        # Step 7: 邮件通知
+        logger.info("Step 7: 发送邮件通知...")
+        _step_notify(decision)
+
         logger.info(f"========== 每日任务完成: {today} ==========")
 
     except Exception as e:
         logger.error(f"每日任务失败: {e}", exc_info=True)
+        _try_send_error_mail("daily_job", e)
 
 
 def _step_fetch_data(date: str, source: str):
@@ -172,3 +181,35 @@ def _step_generate_signals(date: str):
         json.dump(buy_output, f, ensure_ascii=False, indent=2)
 
     logger.info(f"交易信号已生成: {len(buy_signals)} 只买入候选 -> {buy_path}")
+
+
+def _step_decide(date: str):
+    """Step 6: 生成决策"""
+    from api.advisor.decision_engine import run_decision
+    from api.utils.retry import retry_call
+    return retry_call(
+        lambda: run_decision(date),
+        times=settings.ADVISOR_CONFIG["retry_times"],
+        interval=settings.ADVISOR_CONFIG["retry_interval_sec"],
+    )
+
+
+def _step_notify(decision):
+    """Step 7: 发送邮件通知"""
+    from api.notifier.email_sender import send_email
+    from api.notifier.templates import render_html, render_plain_text, render_subject
+    subject = render_subject(decision)
+    html = render_html(decision)
+    plain = render_plain_text(decision)
+    send_email(subject=subject, html_body=html, plain_body=plain)
+
+
+def _try_send_error_mail(step: str, exc: Exception):
+    """尝试发送错误邮件，失败只 log"""
+    import traceback
+    try:
+        from api.notifier.email_sender import send_error_email
+        tb = traceback.format_exc()
+        send_error_email(step=step, error_msg=tb[-3000:])
+    except Exception as e2:
+        logger.error(f"错误邮件发送失败: {e2}")

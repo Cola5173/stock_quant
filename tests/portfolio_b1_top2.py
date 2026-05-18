@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.config import settings
 from api.schemas.kline_constants import KLineConstants
-from api.strategy.b1 import B1Strategy
+from api.portfolio.rules import _yellow_series
 
 from tests.scan_v2_style import check_one as scan_check_one, _load_name_map, list_symbols
 
@@ -182,7 +182,7 @@ def market_allow_buy(date: str, symbol: str, index_dfs: dict) -> bool:
     if hist.empty or len(hist) < 30:
         return False
     closes = hist[KLineConstants.CLOSE].values.astype(float)
-    yellow = B1Strategy._yellow_series(closes)
+    yellow = _yellow_series(closes)
     return float(closes[-1]) >= float(yellow[-1])
 
 
@@ -193,7 +193,7 @@ def market_is_strong(date: str, symbol: str, index_dfs: dict) -> bool:
     if hist.empty or len(hist) < 30:
         return False
     closes = hist[KLineConstants.CLOSE].values.astype(float)
-    yellow = B1Strategy._yellow_series(closes)
+    yellow = _yellow_series(closes)
     cond_close = float(closes[-1]) >= float(yellow[-1])
     if len(yellow) >= 6 and float(yellow[-6]) > 0:
         slope_5 = (float(yellow[-1]) / float(yellow[-6])) - 1
@@ -213,7 +213,7 @@ def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str, market_strong: 
 
     closes = hist[KLineConstants.CLOSE].values.astype(float)
     volumes = hist[KLineConstants.VOLUME].values.astype(float)
-    yellow = B1Strategy._yellow_series(closes)
+    yellow = _yellow_series(closes)
     white = pd.Series(closes).ewm(span=10, adjust=False).mean().ewm(span=10, adjust=False).mean().values
 
     cur_close = float(bar[KLineConstants.CLOSE])
@@ -541,7 +541,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", default="2025-01-01")
     parser.add_argument("--end", default=datetime.today().strftime("%Y-%m-%d"))
-    parser.add_argument("--capital", type=float, default=1_000_000)
+    parser.add_argument("--capital", type=float, default=200_000)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--out", default=None, help="结果保存 json 路径，默认 output/portfolio/b1_top2_<起>_<止>.json")
     args = parser.parse_args()

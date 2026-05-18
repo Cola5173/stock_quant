@@ -38,8 +38,8 @@ class TradingScheduler:
             self._run_daily_job,
             trigger=CronTrigger(
                 day_of_week='mon-fri',
-                hour=15,
-                minute=30,
+                hour=16,
+                minute=0,
             ),
             id='daily_scan',
             max_instances=1,
