@@ -31,6 +31,16 @@ from api.strategy.b1 import B1Strategy
 
 _NAME_MAP: dict = {}
 
+# 5 维度权重（人工根据 analyze_score_weights.py 输出的 Δ 表设定）
+# 默认全 1.0，等同未启用权重
+WEIGHTS = {
+    "位置": 1.0,
+    "量能": 1.0,
+    "日内": 1.0,
+    "KDJ": 1.0,
+    "趋势": 1.0,
+}
+
 
 def _load_name_map() -> dict:
     global _NAME_MAP
@@ -198,7 +208,7 @@ def check_one(args: tuple):
     long_slope = ((yellow[-1] / yellow[-6] - 1)) if len(yellow) >= 6 and yellow[-6] > 0 else 0.0
 
     score, breakdown = compute_v2_score(cur_close, cur_yellow, vol_ratio, chg_pct, cur_j,
-                                         long_slope)
+                                         long_slope, weights=WEIGHTS)
 
     return {
         "symbol": symbol,
