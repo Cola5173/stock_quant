@@ -628,10 +628,51 @@ def main():
     parser.add_argument("--capital", type=float, default=200_000)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--out", default=None)
+    parser.add_argument("--quiet", action="store_true", help="只输出关键统计")
+    # 参数扫描专用（可选覆盖）
+    parser.add_argument("--weak-stop", type=float, default=None, help="弱市硬止损 %（正数）")
+    parser.add_argument("--strong-stop", type=float, default=None, help="强市硬止损 %（正数）")
+    parser.add_argument("--t5-days", type=int, default=None, help="T+N 时间止损天数")
+    parser.add_argument("--t5-gain", type=float, default=None, help="T+N 最低涨幅 %")
+    parser.add_argument("--tp-levels", type=str, default=None, help="止盈档位 逗号分隔，如 8,16,24")
+    parser.add_argument("--score-threshold", type=int, default=None, help="B1 打分阈值")
+    parser.add_argument("--burst-exhaustion", type=float, default=None, help="burst 耗尽涨幅 %")
+    parser.add_argument("--burst-pullback", type=float, default=None, help="burst 耗尽回落 %")
     args = parser.parse_args()
 
+    # 应用参数覆盖
+    global WEAK_STOP_PCT, STRONG_STOP_PCT, T5_HOLD_DAYS, T5_MIN_GAIN_PCT, TP_LEVELS
+    if args.weak_stop is not None:
+        WEAK_STOP_PCT = -args.weak_stop
+    if args.strong_stop is not None:
+        STRONG_STOP_PCT = -args.strong_stop
+    if args.t5_days is not None:
+        T5_HOLD_DAYS = args.t5_days
+    if args.t5_gain is not None:
+        T5_MIN_GAIN_PCT = args.t5_gain
+    if args.tp_levels is not None:
+        TP_LEVELS = [float(x) for x in args.tp_levels.split(",")]
+    if args.score_threshold is not None:
+        from api.strategy.b1 import B1Strategy
+        B1Strategy.score_threshold = args.score_threshold
+    if args.burst_exhaustion is not None:
+        from api.strategy.b1 import B1Strategy
+        B1Strategy.burst_exhaustion_pct = args.burst_exhaustion
+    if args.burst_pullback is not None:
+        from api.strategy.b1 import B1Strategy
+        B1Strategy.burst_exhaustion_pullback_pct = args.burst_pullback
+
     result = run_backtest(args.start, args.end, args.capital, args.workers)
-    print_report(result)
+    if args.quiet:
+        s = result.get("stats", {})
+        print(f"RET={s.get('total_return_pct', 0):+.2f}% "
+              f"DD={s.get('max_drawdown_pct', 0):.2f}% "
+              f"WR={s.get('win_rate_pct', 0):.2f}% "
+              f"TRADES={s.get('trades_closed', 0)} "
+              f"AVG_WIN={s.get('avg_win_pct', 0):+.2f}% "
+              f"AVG_LOSS={s.get('avg_loss_pct', 0):+.2f}%")
+    else:
+        print_report(result)
 
     out = args.out or os.path.join(
         settings.PORTFOLIO_DIR,

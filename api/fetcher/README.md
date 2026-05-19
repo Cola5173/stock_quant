@@ -29,7 +29,7 @@ python api/fetcher/test_fetcher.py --source tushare --list
 |--------|-----|------|
 | Tushare | `TushareDataFetcher` | 私有代理，速度快，推荐 |
 | AkShare | `AkShareDataFetcher` | 免费，基于东方财富，偶发限流 |
-| BaoStock | `BaoStockDataFetcher` | 免费，稳定，速度较慢 |
+| BaoStock | `BaoStockDataFetcher` | ⚠️ 已弃用：服务器（:10030）长期不可达，2026-05 起不再推荐使用 |
 
 ## 文件说明
 
@@ -39,7 +39,7 @@ python api/fetcher/test_fetcher.py --source tushare --list
 | `tushare_client.py` | Tushare Pro 客户端初始化（token + 代理 URL + pandas 兼容 patch） |
 | `tushare_fetcher.py` | Tushare 数据源实现 |
 | `akshare_fetcher.py` | AkShare 数据源实现 |
-| `baostock_fetcher.py` | BaoStock 数据源实现 |
+| `baostock_fetcher.py` | BaoStock 数据源实现（已弃用，仅保留兼容） |
 | `test_fetcher.py` | 测试脚本，支持单只/全量下载 |
 
 ## 统一接口

@@ -57,16 +57,19 @@ export function SettingsPage() {
         </div>
         <div className="grid grid-cols-3 gap-3">
           {[
-            { key: "akshare", label: "AkShare", desc: "免费，基于东方财富" },
-            { key: "tushare", label: "Tushare", desc: "私有代理，速度快" },
-            { key: "baostock", label: "BaoStock", desc: "免费，稳定" },
+            { key: "akshare", label: "AkShare", desc: "免费，基于东方财富", disabled: false },
+            { key: "tushare", label: "Tushare", desc: "私有代理，速度快", disabled: false },
+            { key: "baostock", label: "BaoStock", desc: "已弃用（服务不稳定）", disabled: true },
           ].map((s) => (
             <button
               key={s.key}
-              onClick={() => setDataSource(s.key)}
+              onClick={() => !s.disabled && setDataSource(s.key)}
+              disabled={s.disabled}
               className={
                 "rounded-md border p-3 text-left transition-colors " +
-                (dataSource === s.key
+                (s.disabled
+                  ? "bg-zinc-950 border-zinc-800 text-zinc-600 opacity-50 cursor-not-allowed"
+                  : dataSource === s.key
                   ? "bg-blue-600/10 border-blue-600/40 text-blue-400"
                   : "bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-600")
               }

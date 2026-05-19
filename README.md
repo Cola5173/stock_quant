@@ -4,7 +4,7 @@
 
 ## 功能特点
 
-- 📊 数据源：BaoStock（免费、稳定）
+- 📊 数据源：AkShare（默认，免费，基于东方财富）/ Tushare（私有代理）
 - 🎯 策略框架：基于 vnpy CTA 策略模板，回测与实盘代码统一
 - 📈 技术指标：KDJ、知行趋势、振幅等，支持自定义扩展
 - 💾 回测引擎：vnpy BacktestingEngine，内置 A 股交易规则（T+1、涨跌停、最小交易单位）
@@ -45,8 +45,10 @@ stock_quant/
 │   └── settings.py          # 回测参数、费用配置、可视化配置
 ├── data/                    # 股票 CSV 数据
 ├── fetcher/                 # 数据获取模块
-│   ├── fetcher.py           # 数据获取基类
-│   └── baostock_fetcher.py  # BaoStock 数据源实现
+│   ├── fetcher.py             # 数据获取基类
+│   ├── akshare_fetcher.py     # AkShare 数据源实现（推荐）
+│   ├── tushare_fetcher.py     # Tushare 数据源实现
+│   └── baostock_fetcher.py    # BaoStock 数据源实现（已弃用）
 ├── adapter/                 # 数据适配层
 │   └── vnpy_adapter.py      # CSV → vnpy BarData 转换
 ├── indicator/               # 技术指标计算

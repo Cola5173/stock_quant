@@ -24,7 +24,7 @@ def main():
     parser = argparse.ArgumentParser(description="Fetcher 数据下载测试")
     parser.add_argument("--source", default="tushare",
                         choices=["tushare", "akshare", "baostock"],
-                        help="数据源 (默认 tushare)")
+                        help="数据源 (默认 tushare；baostock 已弃用)")
     parser.add_argument("--symbol", default=None, help="股票代码，不传则拉取全量")
     parser.add_argument("--start", default=None, help="开始日期 YYYY-MM-DD (默认近30天)")
     parser.add_argument("--end", default=None, help="结束日期 YYYY-MM-DD (默认今天)")
@@ -109,6 +109,7 @@ def _create_fetcher(source: str):
         from api.fetcher.akshare_fetcher import AkShareDataFetcher
         return AkShareDataFetcher()
     else:
+        print("⚠️ BaoStock 已弃用（服务器长期不稳定），建议改用 --source akshare")
         from api.fetcher.baostock_fetcher import BaoStockDataFetcher
         return BaoStockDataFetcher()
 

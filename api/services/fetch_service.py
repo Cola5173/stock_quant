@@ -148,6 +148,12 @@ def _create_fetcher(source: str):
         from api.fetcher.akshare_fetcher import AkShareDataFetcher
         return AkShareDataFetcher()
     if source == "baostock":
+        import warnings
+        warnings.warn(
+            "BaoStock 数据源已弃用（服务器长期不稳定），请改用 --source akshare",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         from api.fetcher.baostock_fetcher import BaoStockDataFetcher
         return BaoStockDataFetcher()
     raise ValueError(f"未知数据源: {source}")

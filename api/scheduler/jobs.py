@@ -89,6 +89,9 @@ def _step_fetch_data(date: str, source: str):
         from api.fetcher.tushare_fetcher import TushareDataFetcher
         fetcher = TushareDataFetcher()
     else:
+        logger.warning(
+            "⚠️ BaoStock 已弃用（服务器长期不稳定），调度器强烈建议使用 akshare"
+        )
         from api.fetcher.baostock_fetcher import BaoStockDataFetcher
         fetcher = BaoStockDataFetcher()
 

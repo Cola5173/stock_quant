@@ -1,9 +1,14 @@
 """
-BaoStock数据获取模块
-使用BaoStock数据源获取股票数据（免费，稳定）
+BaoStock数据获取模块（已弃用 / DEPRECATED）
+
+⚠️ 自 2026-05 起，BaoStock 数据服务器（www.baostock.com:10030）频繁不可达，
+   长期不稳定。本模块仅为兼容历史脚本保留，新代码请使用 AkShareDataFetcher。
 """
 import pandas as pd
 import os
+import time
+import logging
+import warnings
 from typing import List, Dict, Optional, Set
 from datetime import datetime, timedelta
 from .fetcher import DataFetcher
@@ -11,29 +16,82 @@ from api.schemas.kline_constants import KLineConstants
 from api.config import settings
 from api.utils.utils import _normalize_stock_code, _convert_stock_code
 
+logger = logging.getLogger(__name__)
+
+# 登录重试参数
+LOGIN_MAX_RETRIES = 3
+LOGIN_BACKOFF_BASE = 2  # 退避：2s, 4s, 8s
+
 
 class BaoStockDataFetcher(DataFetcher):
-    """使用BaoStock数据源（免费，稳定）"""
+    """使用BaoStock数据源（已弃用，服务不稳定，请改用 AkShareDataFetcher）"""
 
     def __init__(self):
         """
         初始化BaoStock数据获取器
-        BaoStock是免费的A股数据接口，数据稳定可靠
+        ⚠️ DEPRECATED：BaoStock 数据服务器长期不稳定，建议改用 AkShareDataFetcher
+        登录失败会指数退避重试，最终仍失败则抛异常
         """
+        warnings.warn(
+            "BaoStockDataFetcher 已弃用：BaoStock 服务器长期不稳定，"
+            "请改用 AkShareDataFetcher（--source akshare，也是默认值）",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        logger.warning(
+            "⚠️ 正在使用已弃用的 BaoStockDataFetcher。BaoStock 服务器（www.baostock.com:10030）"
+            "长期不稳定，强烈建议改用 --source akshare。"
+        )
         super().__init__()
         try:
             import baostock as bs
             self.bs = bs
-            # 登录系统
-            lg = bs.login()
-            if lg.error_code != '0':
-                raise Exception(f'BaoStock登录失败: {lg.error_msg}')
-            self._logged_in = True
         except ImportError:
             raise ImportError("请先安装baostock: pip install baostock")
-        except Exception as e:
-            print(f"BaoStock初始化失败: {e}")
-            self._logged_in = False
+
+        self._logged_in = False
+        self._login_with_retry()
+
+    def _login_with_retry(self) -> None:
+        """登录 BaoStock，失败时指数退避重试"""
+        last_err_msg = ""
+        for attempt in range(LOGIN_MAX_RETRIES):
+            try:
+                lg = self.bs.login()
+                if lg.error_code == '0':
+                    self._logged_in = True
+                    logger.info("BaoStock 登录成功")
+                    return
+                last_err_msg = f"error_code={lg.error_code}, error_msg={lg.error_msg}"
+            except Exception as e:
+                last_err_msg = str(e)
+
+            if attempt < LOGIN_MAX_RETRIES - 1:
+                wait = LOGIN_BACKOFF_BASE ** (attempt + 1)
+                logger.warning(
+                    f"BaoStock 登录失败（{attempt + 1}/{LOGIN_MAX_RETRIES}），"
+                    f"{wait}s 后重试: {last_err_msg}"
+                )
+                time.sleep(wait)
+
+        raise RuntimeError(f"BaoStock 登录失败（重试 {LOGIN_MAX_RETRIES} 次仍失败）: {last_err_msg}")
+
+    def close(self) -> None:
+        """登出 BaoStock，释放会话"""
+        if self._logged_in:
+            try:
+                self.bs.logout()
+            except Exception as e:
+                logger.debug(f"BaoStock logout 异常（忽略）: {e}")
+            finally:
+                self._logged_in = False
+
+    def __del__(self):
+        # 进程退出兜底登出，避免会话残留
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def get_last_trade_date(self) -> str:
         """

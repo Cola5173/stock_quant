@@ -273,30 +273,33 @@ def _fetch_index_info_akshare(code: str) -> Dict[str, Any]:
 
 def _get_index_info(code: str) -> Optional[Dict[str, Any]]:
     """
-    指数信息查询，降级链：BaoStock → Tushare → AkShare
+    指数信息查询，降级链：Tushare → AkShare → BaoStock（最后兜底，已弃用）
+
+    ⚠️ BaoStock 服务器长期不稳定（2026-05 起 :10030 端口经常不可达），
+       已从第一站降为最后兜底，仅在前两个数据源都失败时尝试。
     """
     ts_code, bs_code = _parse_index_code(code)
+    result: Dict[str, Any] = {}
 
-    # 1. BaoStock
-    result = _fetch_index_info_baostock(bs_code)
-    if result:
-        logger.info(f"指数 {code} 信息来源: BaoStock")
-
-    # 2. Tushare（补充或兜底）
+    # 1. Tushare（首选）
     ts_data = _fetch_index_info_tushare(ts_code)
     if ts_data:
-        if not result:
-            logger.info(f"指数 {code} 信息来源: Tushare")
-        for k, v in ts_data.items():
-            if k not in result:
-                result[k] = v
+        logger.info(f"指数 {code} 信息来源: Tushare")
+        result.update(ts_data)
 
-    # 3. AkShare（最后兜底）
+    # 2. AkShare（补充或兜底）
     if not result:
         ak_data = _fetch_index_info_akshare(code)
         if ak_data:
             logger.info(f"指数 {code} 信息来源: AkShare")
             result = ak_data
+
+    # 3. BaoStock（最后兜底，已弃用 — 失败不影响主流程）
+    if not result:
+        bs_data = _fetch_index_info_baostock(bs_code)
+        if bs_data:
+            logger.info(f"指数 {code} 信息来源: BaoStock (deprecated)")
+            result = bs_data
 
     return result if result else None
 
@@ -304,7 +307,7 @@ def _get_index_info(code: str) -> Optional[Dict[str, Any]]:
 def get_stock_info(code: str) -> Optional[Dict[str, Any]]:
     """
     统一入口：
-    - 指数（idx_ 前缀）：降级链 BaoStock → Tushare → AkShare
+    - 指数（idx_ 前缀）：降级链 Tushare → AkShare → BaoStock（最后兜底，已弃用）
     - 个股：非交易日用本地 CSV 兜底，交易日走 API（带缓存）
     """
     if _is_index(code):

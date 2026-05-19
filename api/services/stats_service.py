@@ -5,7 +5,7 @@ from api.config import settings
 from api.schemas.models import HomeStats
 from api.services.backtest_service import STRATEGY_REGISTRY
 
-DATA_SOURCES = ["tushare", "akshare", "baostock"]
+DATA_SOURCES = ["tushare", "akshare"]  # baostock 已弃用，不计入统计
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 

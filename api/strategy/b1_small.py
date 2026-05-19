@@ -43,7 +43,7 @@ class B1SmallStrategy(B1Strategy):
     # === 小资金专属参数 ===
     max_price = 100.0
     time_stop_days = 5
-    time_stop_min_gain_pct = 2.0
+    time_stop_min_gain_pct = 2.5  # 优化后：从 2.0 提到 2.5（参数扫描验证最优）
     weak_stop_loss_pct = 3.0
     strong_stop_loss_pct = 5.0
 

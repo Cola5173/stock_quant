@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A 股量化交易平台，包含完整的选股流水线（数据获取 → 筛选 → K线图 → LLM 打分 → 信号生成）和回测引擎。
 
 核心特性：
-- 数据源：AkShare（默认，免费）/ BaoStock（备选）
+- 数据源：AkShare（默认，免费）/ Tushare（私有代理）。BaoStock 已弃用（服务器长期不稳定）
 - 策略框架：vnpy 3.9.0 CTA 策略模板
 - 交易规则：内置 A 股规则（T+1、涨跌停、100 股最小单位、ST 识别）
 - 选股流水线：全市场扫描 → K线图生成 → Claude LLM 两阶段打分 → 买入信号
@@ -20,9 +20,9 @@ A 股量化交易平台，包含完整的选股流水线（数据获取 → 筛�
 # 环境准备
 pip install -r requirements.txt
 
-# 数据下载（AkShare 默认，可选 --source baostock）
+# 数据下载（AkShare 默认；BaoStock 已弃用不可用）
 python main.py data --start 2024-01-01 --end 2025-12-31
-python main.py data --start 2024-01-01 --end 2025-12-31 --source baostock
+python main.py data --start 2024-01-01 --end 2025-12-31 --source akshare
 
 # 单股回测
 python main.py backtest --strategy b1 --symbol 600000 --start 2024-01-01 --end 2025-06-30
@@ -66,7 +66,7 @@ T+1开盘执行             自动执行环节1-4
 
 | 模块 | 职责 |
 |------|------|
-| `fetcher/` | 数据获取（AkShareDataFetcher / BaoStockDataFetcher） |
+| `fetcher/` | 数据获取（AkShareDataFetcher 主用 / TushareDataFetcher / BaoStockDataFetcher 已弃用） |
 | `adapter/` | CSV → vnpy BarData 转换，导入 SQLite |
 | `api/scanner/` | 全市场策略筛选，输出候选股票 JSON |
 | `api/visualizer/` | K线图生成，可扩展面板（TrendLinePanel, KDJPanel） |

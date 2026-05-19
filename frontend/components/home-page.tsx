@@ -50,7 +50,7 @@ export function HomePage({ onNavigate }: { onNavigate: (k: NavKey) => void }) {
       <div className="grid grid-cols-3 gap-4 mb-8">
         <StatCard label="可选股票" value={stats?.stock_count ?? "—"} hint="A 股全市场（已过滤 ST）" />
         <StatCard label="可用策略" value={stats?.strategy_count ?? "—"} hint="实现于 strategy/ 模块" />
-        <StatCard label="数据源" value={stats?.data_source_count ?? "—"} hint="Tushare / AkShare / BaoStock" />
+        <StatCard label="数据源" value={stats?.data_source_count ?? "—"} hint="Tushare / AkShare" />
       </div>
 
       {/* Features */}
