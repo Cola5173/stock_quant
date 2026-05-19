@@ -3,5 +3,6 @@
 
 from .base_strategy import BaseStrategy
 from .b1 import B1Strategy
+from .b1_small import B1SmallStrategy
 
-__all__ = ['BaseStrategy', 'B1Strategy']
+__all__ = ['BaseStrategy', 'B1Strategy', 'B1SmallStrategy']

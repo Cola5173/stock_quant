@@ -1,28 +1,30 @@
-"""B1 Top-2 组合回测（v2 高周转版，参考 touzikexue 反推规则）
+"""B1 Small 组合回测（小资金 20w 专用，参考 portfolio_b1_top2.py）
 
 策略说明:
-- 每日扫描全市场，Top-2 评分最高，T+1 开盘等额买入
-- 单只仓位 50%
+- 选股：B1 真实选股逻辑（异动突破 + 多因子打分）
+- 仅主板（600/000/001 开头），价格 ≤ 100 元
 - 大盘（idx_000001_SH）收盘 < 大哥黄 时禁止买入
-- 持仓中不再补仓，仅在所有持仓清零后下次扫描重新入场
-- 卖出规则（5 类）：
-  1. T+3 不涨即卖：持仓 3 个交易日且累计涨幅 < 2% 全清
-  2. 跌破长均线（大哥黄）1 日就出
-  3. 阴线放量（量比 > 1.5 且跌幅 > 5%）
-  4. 上穿短均线（趋势白）后再跌破：曾经站上趋势白后跌破即出
-  5. 9 级分批止盈：每涨 +10% 卖剩余仓位 1/3，最高 +90%
+- 强市最多 2 只（单只 50%），弱市最多 1 只（单只 40%）
+- 卖出规则（与 portfolio_b1_top2 一致，参数针对小资金收紧）：
+  0. 硬止损：弱市 -3%，强市 -5%（小资金严格保护）
+  1. 跌破大哥黄 1 日就出
+  2. 阴线放量（量比 > 1.5 且跌幅 > 5%）
+  3. 上穿趋势白后再跌破即出
+  4. T+5 不涨即卖：持仓 5 个交易日且累计涨幅 < 2%
+  5. 分批止盈：每涨 +8% 卖剩余仓位 1/3（最高 +24%）
+- 连续 2 笔亏损后冷却 10 日
+- 同一只票止损后 20 日内不再买入
 
 用法:
-    python tests/portfolio_b1_top2.py --start 2025-01-01 --end 2026-05-17 --workers 8
+    python tests/portfolio_b1_small.py --start 2025-01-01 --end 2026-05-18 --capital 200000 --workers 8
 """
 import argparse
 import json
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from glob import glob
 from typing import Optional
 
 import numpy as np
@@ -33,75 +35,43 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.config import settings
 from api.schemas.kline_constants import KLineConstants
 from api.portfolio.rules import _yellow_series
+from api.strategy.b1_small import B1SmallStrategy
 
-from tests.scan_v2_style import check_one as scan_check_one, _load_name_map, list_symbols
+from tests.scan_b1_full import check_one as scan_b1_check_one, _load_name_map, list_symbols
 
 
 FEE = settings.FEE_CONFIG
 SLIPPAGE = 0.001
-INDEX_SYMBOL = "idx_000001_SH"
-
+INDEX_DEFAULT = "idx_000001_SH"
 INDEX_MAP = {
     "60": "idx_000001_SH",
     "00": "idx_399001_SZ",
-    "30": "idx_399006_SZ",
-    "68": "idx_000016_SH",
 }
-INDEX_DEFAULT = "idx_000001_SH"
 
+# === 小资金参数（与 B1SmallStrategy 对齐）===
+MAX_PRICE = B1SmallStrategy.max_price
+T5_HOLD_DAYS = B1SmallStrategy.time_stop_days
+T5_MIN_GAIN_PCT = B1SmallStrategy.time_stop_min_gain_pct
+WEAK_STOP_PCT = -B1SmallStrategy.weak_stop_loss_pct
+STRONG_STOP_PCT = -B1SmallStrategy.strong_stop_loss_pct
 
-def pick_index_for(symbol: str) -> str:
-    """按代码前缀返回对应大盘指数 symbol。
-    60→上证, 00→深成, 30→创业, 68→科创(用上证50平替), 其他→上证兜底。
-    """
-    return INDEX_MAP.get(symbol[:2], INDEX_DEFAULT)
-
-
-def _load_index_dfs(start_date: str, end_date: str) -> dict:
-    """加载所有用到的指数 CSV，校验日期覆盖。
-    缺失或日期不覆盖的指数 key 退化到 INDEX_DEFAULT 并打印 warning。
-    返回 {idx_symbol: DataFrame}。
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    needed = set(INDEX_MAP.values()) | {INDEX_DEFAULT}
-    out = {}
-    start = pd.to_datetime(start_date)
-    end = pd.to_datetime(end_date)
-    for idx_sym in needed:
-        df = load_csv(idx_sym)
-        if df is None or df.empty:
-            logger.warning(f"指数 {idx_sym} 缺失，退化到 {INDEX_DEFAULT}")
-            out[idx_sym] = None
-            continue
-        first = df[KLineConstants.DATE].min()
-        last = df[KLineConstants.DATE].max()
-        if first > start:
-            logger.warning(
-                f"指数 {idx_sym} 起始日 {first.date()} 晚于回测起 {start.date()}，退化到 {INDEX_DEFAULT}"
-            )
-            out[idx_sym] = None
-            continue
-        if last < start:
-            logger.warning(
-                f"指数 {idx_sym} 结束日 {last.date()} 早于回测起 {start.date()}，退化到 {INDEX_DEFAULT}"
-            )
-            out[idx_sym] = None
-            continue
-        out[idx_sym] = df
-    default_df = out.get(INDEX_DEFAULT)
-    if default_df is None:
-        raise RuntimeError(f"INDEX_DEFAULT={INDEX_DEFAULT} 数据不可用，无法回测")
-    return {k: (v if v is not None else default_df) for k, v in out.items()}
-
-
-T3_HOLD_DAYS = 3
-T3_MIN_GAIN_PCT = 2.0
-TP_LEVELS = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+TP_LEVELS = [8, 16, 24]
 TP_RATIO = 1.0 / 3.0
 BEAR_VOL_RATIO = 1.5
 BEAR_DROP_PCT = 5.0
-MARKET_BUFFER = 1.00
+STOCK_COOLDOWN_DAYS = 20
+COOLDOWN_LOSS_STREAK = 2
+COOLDOWN_OFFSET = 10
+
+
+def pick_index_for(symbol: str) -> str:
+    return INDEX_MAP.get(symbol[:2], INDEX_DEFAULT)
+
+
+def is_main_board(symbol: str) -> bool:
+    return (symbol.startswith("600")
+            or symbol.startswith("000")
+            or symbol.startswith("001"))
 
 
 @dataclass
@@ -175,8 +145,32 @@ def get_history_until(df: pd.DataFrame, date: str) -> pd.DataFrame:
     return df[df[KLineConstants.DATE] <= d].reset_index(drop=True)
 
 
+def _load_index_dfs(start_date: str, end_date: str) -> dict:
+    import logging
+    logger = logging.getLogger(__name__)
+    needed = set(INDEX_MAP.values()) | {INDEX_DEFAULT}
+    out = {}
+    start = pd.to_datetime(start_date)
+    for idx_sym in needed:
+        df = load_csv(idx_sym)
+        if df is None or df.empty:
+            logger.warning(f"指数 {idx_sym} 缺失，退化到 {INDEX_DEFAULT}")
+            out[idx_sym] = None
+            continue
+        first = df[KLineConstants.DATE].min()
+        last = df[KLineConstants.DATE].max()
+        if first > start or last < start:
+            logger.warning(f"指数 {idx_sym} 日期不覆盖，退化到 {INDEX_DEFAULT}")
+            out[idx_sym] = None
+            continue
+        out[idx_sym] = df
+    default_df = out.get(INDEX_DEFAULT)
+    if default_df is None:
+        raise RuntimeError(f"INDEX_DEFAULT={INDEX_DEFAULT} 数据不可用")
+    return {k: (v if v is not None else default_df) for k, v in out.items()}
+
+
 def market_allow_buy(date: str, symbol: str, index_dfs: dict) -> bool:
-    """大盘收盘 >= 大哥黄 才允许买入（按 symbol 选板块对应指数）。"""
     idx = index_dfs[pick_index_for(symbol)]
     hist = get_history_until(idx, date)
     if hist.empty or len(hist) < 30:
@@ -187,7 +181,6 @@ def market_allow_buy(date: str, symbol: str, index_dfs: dict) -> bool:
 
 
 def market_is_strong(date: str, symbol: str, index_dfs: dict) -> bool:
-    """大盘强势：close >= 大哥黄 且 大哥黄 5 日斜率 > 0（按 symbol 选板块对应指数）。"""
     idx = index_dfs[pick_index_for(symbol)]
     hist = get_history_until(idx, date)
     if hist.empty or len(hist) < 30:
@@ -202,8 +195,8 @@ def market_is_strong(date: str, symbol: str, index_dfs: dict) -> bool:
     return cond_close and slope_5 > 0
 
 
-def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str, market_strong: bool = True):
-    """返回 (reason, sell_ratio) 元组"""
+def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str, market_strong: bool):
+    """返回 (reason, sell_ratio)"""
     bar = get_bar(df, date)
     if bar is None:
         return None, 0.0
@@ -229,12 +222,12 @@ def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str, market_strong: 
     if cur_close >= cur_white:
         pos.above_white_once = True
 
-    # 0. 硬止损：弱市 -4%，强市 -7%
-    stop_pct = -7.0 if market_strong else -4.0
+    # 0. 硬止损：弱市 -3%，强市 -5%
+    stop_pct = STRONG_STOP_PCT if market_strong else WEAK_STOP_PCT
     if cur_profit <= stop_pct:
-        return f"硬止损({stop_pct:.0f}%, 当前{cur_profit:.2f}%)", 1.0
+        return f"小资金硬止损({stop_pct:.0f}%, 当前{cur_profit:+.2f}%)", 1.0
 
-    # 1. 跌破大哥黄 1 日就出
+    # 1. 跌破大哥黄
     if cur_close < cur_yellow:
         return "跌破大哥黄", 1.0
 
@@ -250,11 +243,11 @@ def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str, market_strong: 
     if pos.above_white_once and cur_close < cur_white:
         return "破趋势白(曾上穿)", 1.0
 
-    # 4. T+N 不涨即卖
-    if pos.hold_days >= T3_HOLD_DAYS and cur_profit < T3_MIN_GAIN_PCT:
-        return f"T+{T3_HOLD_DAYS} 涨幅<{T3_MIN_GAIN_PCT}%(当前{cur_profit:+.2f}%)", 1.0
+    # 4. T+5 不涨即卖
+    if pos.hold_days >= T5_HOLD_DAYS and cur_profit < T5_MIN_GAIN_PCT:
+        return f"T+{T5_HOLD_DAYS} 涨幅<{T5_MIN_GAIN_PCT}%(当前{cur_profit:+.2f}%)", 1.0
 
-    # 5. 分批止盈：每涨 10% 卖剩余仓位的 1/3
+    # 5. 分批止盈：每涨 8% 卖 1/3
     next_lv = pos.tp_level_done + 1
     if next_lv <= len(TP_LEVELS):
         target_gain = TP_LEVELS[next_lv - 1]
@@ -266,18 +259,40 @@ def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str, market_strong: 
 
 
 def _scan_worker(args):
+    """B1 真实选股 + 小资金过滤（仅主板 + 价格 ≤ 100）"""
     symbol, date = args
-    return scan_check_one((symbol, date))
+    if not is_main_board(symbol):
+        return None
+    r = scan_b1_check_one((symbol, date))
+    if r is None:
+        return None
+    if r.get("close", 0) > MAX_PRICE:
+        return None
+    return r
+
+
+def _load_st_set() -> set:
+    path = os.path.join(settings.DATA_DIR, "stock_extra_info.json")
+    if not os.path.exists(path):
+        return set()
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+        return {k for k, v in data.items() if v.get("is_st", False)}
+    except Exception:
+        return set()
 
 
 def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -> dict:
     name_map = _load_name_map()
     symbols = list_symbols()
+    st_set = _load_st_set()
+    symbols = [s for s in symbols if is_main_board(s) and s not in st_set]
 
     index_dfs = _load_index_dfs(start_date, end_date)
-    index_df = index_dfs[INDEX_DEFAULT]  # 用作 trading_days 抽取的参考
+    index_df = index_dfs[INDEX_DEFAULT]
     if index_df is None:
-        print(f"未找到大盘数据 {INDEX_DEFAULT}.csv，回测中止")
+        print(f"未找到大盘数据 {INDEX_DEFAULT}.csv")
         sys.exit(1)
 
     trading_days = index_df[
@@ -289,7 +304,7 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
         sys.exit(1)
 
     print(f"回测 {trading_days[0]} ~ {trading_days[-1]}（{len(trading_days)} 个交易日）"
-          f" | 初始资金 {capital:,.0f} | 并发 {workers}")
+          f" | 初始资金 {capital:,.0f} | 主板股票 {len(symbols)} 只 | 并发 {workers}")
 
     cash = capital
     positions: dict[str, Position] = {}
@@ -298,6 +313,7 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
     skipped_market_days = 0
     consecutive_losses = 0
     cooldown_until = -1
+    stock_cooldown: dict[str, int] = {}
     t0 = datetime.now()
 
     pool = ProcessPoolExecutor(max_workers=workers)
@@ -308,15 +324,15 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
         market_ok = market_allow_buy(today, INDEX_DEFAULT, index_dfs)
         market_strong = market_is_strong(today, INDEX_DEFAULT, index_dfs)
 
-        # ===== 1. 检查持仓的卖出信号（T 日数据判断） =====
-        sells_today = []  # [(sym, reason, ratio)]
+        # ===== 1. 检查持仓的卖出信号 =====
+        sells_today = []
         for sym, pos in list(positions.items()):
             df = load_csv(sym)
             reason, ratio = calc_sell_signal(pos, df, today, market_strong)
             if reason:
                 sells_today.append((sym, reason, ratio))
 
-        # ===== 2. T+1 开盘卖出（支持分批） =====
+        # ===== 2. T+1 开盘卖出 =====
         for sym, reason, ratio in sells_today:
             pos = positions[sym]
             df = load_csv(sym)
@@ -342,20 +358,19 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
             pos.shares -= sell_shares
             full_clear = pos.shares < 100
             if full_clear:
-                # 不足 100 股按全清处理
                 if pos.shares > 0:
                     cash += pos.shares * sell_price
                 del positions[sym]
-                # 全清亏损统计：连续 2 笔后触发 10 日冷却
                 if pnl_pct < 0:
                     consecutive_losses += 1
-                    if consecutive_losses >= 2:
-                        cooldown_until = max(cooldown_until, i + 15)
+                    stock_cooldown[sym] = i + STOCK_COOLDOWN_DAYS
+                    if consecutive_losses >= COOLDOWN_LOSS_STREAK:
+                        cooldown_until = max(cooldown_until, i + COOLDOWN_OFFSET)
                         consecutive_losses = 0
                 else:
                     consecutive_losses = 0
 
-        # ===== 3. 上证一刀切 + 弱市半仓 + 连续亏损冷却 =====
+        # ===== 3. 买入：强市最多 2 只(50%)，弱市最多 1 只(40%) =====
         max_slots = 2 if market_strong else 1
         in_cooldown = i < cooldown_until
         slots = max_slots - len(positions)
@@ -365,12 +380,14 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
             for fut in as_completed({pool.submit(_scan_worker, t): t for t in tasks}):
                 r = fut.result()
                 if r and r["symbol"] not in positions:
+                    sym = r["symbol"]
+                    if stock_cooldown.get(sym, -1) > i:
+                        continue
                     hits.append(r)
             hits.sort(key=lambda x: -x["score"])
             top = hits[:slots]
 
             if top:
-                # 仓位：强市 50%/只，弱市 40%/只
                 per_pos_cap = capital * (0.50 if market_strong else 0.40)
                 for cand in top:
                     sym = cand["symbol"]
@@ -379,7 +396,7 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
                     if bar_next is None:
                         continue
                     buy_price = float(bar_next[KLineConstants.OPEN]) * (1 + SLIPPAGE)
-                    if buy_price <= 0:
+                    if buy_price <= 0 or buy_price > MAX_PRICE:
                         continue
                     budget = min(per_pos_cap, cash / max(1, len(top)))
                     shares = int(budget / buy_price // 100) * 100
@@ -416,12 +433,12 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
 
         if (i + 1) % 50 == 0 or i == len(trading_days) - 2:
             el = (datetime.now() - t0).total_seconds()
-            print(f"  进度 {i+1}/{len(trading_days)-1}  净值 {total:,.0f}  持仓 {len(positions)}  "
-                  f"已耗 {el:.0f}s", flush=True)
+            print(f"  进度 {i+1}/{len(trading_days)-1}  净值 {total:,.0f}  "
+                  f"持仓 {len(positions)}  已耗 {el:.0f}s", flush=True)
 
     pool.shutdown(wait=False)
 
-    # 强制平仓最后一日（按最后一日收盘）
+    # 强制平仓最后一日
     last_day = trading_days[-1]
     for sym, pos in list(positions.items()):
         df = load_csv(sym)
@@ -443,13 +460,13 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
         ))
         del positions[sym]
 
-    return aggregate(daily_values, trades, capital, skipped_market_days, trading_days[0], trading_days[-1])
+    return aggregate(daily_values, trades, capital, skipped_market_days,
+                     trading_days[0], trading_days[-1])
 
 
 def aggregate(daily_values, trades, capital, skipped_days, start, end) -> dict:
     if not daily_values:
         return {}
-
     final = daily_values[-1]["total"]
     total_return = (final - capital) / capital * 100
     days = len(daily_values)
@@ -504,7 +521,7 @@ def print_report(result: dict):
     p = result["period"]
     print()
     print("=" * 70)
-    print(f"B1 Top-2 组合回测结果  {p['start']} ~ {p['end']}（{p['days']} 个交易日）")
+    print(f"B1 Small 组合回测结果  {p['start']} ~ {p['end']}（{p['days']} 个交易日）")
     print("=" * 70)
     print(f"初始资金        : {s['initial_capital']:,.0f}")
     print(f"最终净值        : {s['final_value']:,.0f}")
@@ -541,9 +558,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", default="2025-01-01")
     parser.add_argument("--end", default=datetime.today().strftime("%Y-%m-%d"))
-    parser.add_argument("--capital", type=float, default=1_000_000)
+    parser.add_argument("--capital", type=float, default=200_000)
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--out", default=None, help="结果保存 json 路径，默认 output/portfolio/b1_top2_<起>_<止>.json")
+    parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
     result = run_backtest(args.start, args.end, args.capital, args.workers)
@@ -551,7 +568,7 @@ def main():
 
     out = args.out or os.path.join(
         settings.PORTFOLIO_DIR,
-        f"b1_top2_{args.start}_{args.end}.json"
+        f"b1_small_{args.start}_{args.end}.json"
     )
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
