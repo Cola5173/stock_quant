@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Edit, RefreshCw } from "lucide-react";
+import type { StockItem } from "@/lib/types";
 
 const ACTION_COLORS: Record<string, string> = {
   sell: "bg-red-900/40 border-red-700",
@@ -173,12 +174,9 @@ export function LiveTradingPage() {
                 return (
                   <div key={i}>
                     <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 items-center">
-                      <input
-                        type="text"
-                        placeholder="代码"
+                      <SymbolSearchInput
                         value={p.symbol}
-                        onChange={(e) => updatePosition(i, "symbol", e.target.value)}
-                        className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+                        onChange={(code) => updatePosition(i, "symbol", code)}
                       />
                       <input
                         type="number"
@@ -292,6 +290,51 @@ function StatusBadge({ label, value, positive }: { label: string; value: string;
   return (
     <div className={`px-3 py-1.5 rounded-md border text-sm ${positive ? "border-green-700 bg-green-900/30 text-green-300" : "border-red-700 bg-red-900/30 text-red-300"}`}>
       <span className="text-zinc-400 mr-1">{label}:</span>{value}
+    </div>
+  );
+}
+
+function SymbolSearchInput({ value, onChange }: { value: string; onChange: (code: string) => void }) {
+  const { data: stocks = [] } = useQuery({ queryKey: ["stocks"], queryFn: api.stocks });
+  const [search, setSearch] = useState(value);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => { setSearch(value); }, [value]);
+
+  const filtered = useMemo(() => {
+    if (!search) return [];
+    const q = search.toLowerCase();
+    return stocks.filter((s: StockItem) =>
+      s.code.includes(q) || s.name.toLowerCase().includes(q)
+    ).slice(0, 8);
+  }, [stocks, search]);
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        placeholder="代码/名称"
+        value={search}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { setSearch(e.target.value); onChange(e.target.value); setOpen(true); }}
+        className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-20 mt-1 w-48 max-h-48 overflow-auto bg-zinc-950 border border-zinc-800 rounded-md shadow-lg">
+          {filtered.map((s: StockItem) => (
+            <button
+              key={s.code}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onChange(s.code); setSearch(s.code); setOpen(false); }}
+              className="w-full text-left px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+            >
+              <span className="text-zinc-200">{s.code}</span>
+              <span className="text-zinc-500 ml-1.5">{s.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
