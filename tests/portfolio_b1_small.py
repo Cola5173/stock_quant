@@ -82,6 +82,7 @@ class Position:
     cost_price: float
     buy_date: str
     buy_day_low: float
+    scan_date: str = ""
     initial_shares: int = 0
     hold_days: int = 0
     max_profit_pct: float = 0.0
@@ -91,6 +92,7 @@ class Position:
 
 @dataclass
 class TradeRecord:
+    scan_date: str
     buy_date: str
     sell_date: Optional[str]
     symbol: str
@@ -349,7 +351,7 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
             pnl = revenue - fee - pos.cost_price * sell_shares
             pnl_pct = (sell_price - pos.cost_price) / pos.cost_price * 100
             trades.append(TradeRecord(
-                buy_date=pos.buy_date, sell_date=next_day,
+                scan_date=pos.scan_date, buy_date=pos.buy_date, sell_date=next_day,
                 symbol=pos.symbol, name=pos.name, shares=sell_shares,
                 buy_price=round(pos.cost_price, 2), sell_price=round(sell_price, 2),
                 pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 2),
@@ -416,6 +418,7 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
                         cost_price=buy_price,
                         buy_date=next_day,
                         buy_day_low=buy_day_low,
+                        scan_date=today,
                         initial_shares=shares,
                     )
         elif slots > 0 and not market_ok:
@@ -452,7 +455,7 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
         pnl = revenue - fee - pos.cost_price * pos.shares
         pnl_pct = (sell_price - pos.cost_price) / pos.cost_price * 100
         trades.append(TradeRecord(
-            buy_date=pos.buy_date, sell_date=last_day,
+            scan_date=pos.scan_date, buy_date=pos.buy_date, sell_date=last_day,
             symbol=pos.symbol, name=pos.name, shares=pos.shares,
             buy_price=round(pos.cost_price, 2), sell_price=round(sell_price, 2),
             pnl=round(pnl, 2), pnl_pct=round(pnl_pct, 2),
@@ -490,6 +493,7 @@ def aggregate(daily_values, trades, capital, skipped_days, start, end) -> dict:
     # 回撤区间内已平仓交易（按 sell_date 在 [peak_date, trough_date] 范围内）
     period_trades = [
         {
+            "scan_date": t.scan_date,
             "buy_date": t.buy_date,
             "sell_date": t.sell_date,
             "symbol": t.symbol,
@@ -595,20 +599,22 @@ def print_report(result: dict):
         print(f"期间交易        : {dp['trades_count']} 笔（盈 {dp['trades_wins']} / 亏 {dp['trades_losses']}）"
               f"  累计 PnL {dp['trades_pnl']:+,.0f}")
         if dp["trades"]:
-            print(f"{'代码':<8}{'名称':<10}{'买入':<12}{'卖出':<12}{'盈亏%':>9}  原因")
+            print(f"{'代码':<8}{'名称':<10}{'选出':<12}{'买入':<12}{'卖出':<12}{'盈亏%':>9}  原因")
             for t in dp["trades"]:
                 nm = (t["name"] or "")[:8]
                 print(f"{t['symbol']:<8}{nm:<10}"
+                      f"{(t.get('scan_date') or '-'):<12}"
                       f"{t['buy_date']:<12}{(t['sell_date'] or '-'):<12}"
                       f"{(t['pnl_pct'] or 0):>+9.2f}  {t['sell_reason']}")
 
     print()
     print("=== 交易明细 ===")
-    print(f"{'#':<3}{'代码':<8}{'名称':<10}{'买入日':<12}{'卖出日':<12}"
+    print(f"{'#':<3}{'代码':<8}{'名称':<10}{'选出':<12}{'买入日':<12}{'卖出日':<12}"
           f"{'股数':>7}{'买价':>8}{'卖价':>8}{'盈亏%':>9}{'持仓':>5}  原因")
     for i, t in enumerate(result["trades"], 1):
         nm = (t["name"] or "")[:8]
         print(f"{i:<3}{t['symbol']:<8}{nm:<10}"
+              f"{(t.get('scan_date') or '-'):<12}"
               f"{t['buy_date']:<12}{(t['sell_date'] or '-'):<12}"
               f"{t['shares']:>7}{t['buy_price']:>8.2f}"
               f"{(t['sell_price'] or 0):>8.2f}"
