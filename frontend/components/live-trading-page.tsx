@@ -25,6 +25,12 @@ export function LiveTradingPage() {
   const [totalCapital, setTotalCapital] = useState(100000);
   const [positions, setPositions] = useState<Array<{ symbol: string; shares: number; cost_price: number; buy_date: string }>>([]);
   const [initialized, setInitialized] = useState(false);
+  const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+
+  const showToast = (type: "success" | "error", msg: string) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const { data, isPending, isError } = useQuery({
     queryKey: ["advisor-latest"],
@@ -53,6 +59,10 @@ export function LiveTradingPage() {
     mutationFn: (data: Record<string, unknown>) => api.updatePositions(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["advisor-latest"] });
+      showToast("success", "持仓保存成功");
+    },
+    onError: (err: Error) => {
+      showToast("error", `保存失败：${err.message}`);
     },
   });
 
@@ -220,12 +230,6 @@ export function LiveTradingPage() {
           )}
         </div>
 
-        {/* 错误提示 */}
-        {updateMutation.isError && (
-          <div className="mt-3 p-3 bg-red-950/50 border border-red-900 rounded-md text-red-300 text-xs">
-            保存失败：{(updateMutation.error as Error).message}
-          </div>
-        )}
       </Section>
 
       {/* 明日动作 */}
@@ -270,6 +274,16 @@ export function LiveTradingPage() {
           </ul>
         </Section>
       )}
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-6 right-6 z-50 px-4 py-3 rounded-lg shadow-lg text-sm ${
+          toast.type === "success"
+            ? "bg-green-900/90 border border-green-700 text-green-200"
+            : "bg-red-900/90 border border-red-700 text-red-200"
+        }`}>
+          {toast.msg}
+        </div>
+      )}
     </div>
   );
 }
@@ -296,10 +310,21 @@ function StatusBadge({ label, value, positive }: { label: string; value: string;
 
 function SymbolSearchInput({ value, onChange }: { value: string; onChange: (code: string) => void }) {
   const { data: stocks = [] } = useQuery({ queryKey: ["stocks"], queryFn: api.stocks });
-  const [search, setSearch] = useState(value);
+  const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
 
-  useEffect(() => { setSearch(value); }, [value]);
+  // 当前选中的股票（用于展示 label）
+  const selected = useMemo(
+    () => stocks.find((s: StockItem) => s.code === value),
+    [stocks, value]
+  );
+
+  const displayValue = editing
+    ? search
+    : selected
+      ? `${selected.name} (${selected.code}.${selected.exchange})`
+      : value;
 
   const filtered = useMemo(() => {
     if (!search) return [];
@@ -314,23 +339,27 @@ function SymbolSearchInput({ value, onChange }: { value: string; onChange: (code
       <input
         type="text"
         placeholder="代码/名称"
-        value={search}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        value={displayValue}
+        onFocus={() => { setEditing(true); setSearch(""); setOpen(true); }}
+        onBlur={() => setTimeout(() => { setOpen(false); setEditing(false); }, 150)}
         onChange={(e) => { setSearch(e.target.value); onChange(e.target.value); setOpen(true); }}
         className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
       />
       {open && filtered.length > 0 && (
-        <div className="absolute z-20 mt-1 w-48 max-h-48 overflow-auto bg-zinc-950 border border-zinc-800 rounded-md shadow-lg">
+        <div className="absolute z-20 mt-1 w-64 max-h-48 overflow-auto bg-zinc-950 border border-zinc-800 rounded-md shadow-lg">
           {filtered.map((s: StockItem) => (
             <button
               key={s.code}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { onChange(s.code); setSearch(s.code); setOpen(false); }}
+              onClick={() => {
+                onChange(s.code);
+                setOpen(false);
+                setEditing(false);
+              }}
               className="w-full text-left px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
             >
-              <span className="text-zinc-200">{s.code}</span>
-              <span className="text-zinc-500 ml-1.5">{s.name}</span>
+              <span className="text-zinc-200">{s.name}</span>
+              <span className="text-zinc-500 ml-1.5">({s.code}.{s.exchange})</span>
             </button>
           ))}
         </div>
