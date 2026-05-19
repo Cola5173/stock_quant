@@ -2,9 +2,22 @@
 
 import { LineChart, RefreshCw, Loader2 } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
 export function Header({ subtitle, dateRange }: { subtitle?: string; dateRange?: string }) {
+  const [now, setNow] = useState<string>("");
+
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      setNow(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
   const statusQuery = useQuery({
     queryKey: ["fetch-status"],
     queryFn: api.fetchStatus,
@@ -58,6 +71,7 @@ export function Header({ subtitle, dateRange }: { subtitle?: string; dateRange?:
           {running ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
           拉取最新数据
         </button>
+        <span className="text-xs text-zinc-400 font-mono tabular-nums">{now}</span>
       </div>
     </header>
   );

@@ -40,6 +40,11 @@ export const api = {
     http<SelectedRecord[]>(`/api/selected/${strategy}/records`),
   selectedDetail: (strategy: string, date: string) =>
     http<SelectedDetail>(`/api/selected/${strategy}/${date}`),
+  runScan: (strategy: string, date?: string) =>
+    http<{ status: string; date: string; strategy: string; candidates_count: number }>(
+      `/api/selected/${strategy}/run${date ? `?date=${date}` : ""}`,
+      { method: "POST" }
+    ),
   advisorLatest: () =>
     http<{ positions: Record<string, unknown>; decision: Record<string, unknown> | null }>("/api/advisor/latest"),
   updatePositions: (data: Record<string, unknown>) =>

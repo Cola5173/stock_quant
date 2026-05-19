@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Download, Play, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { SelectedDetail } from "@/lib/types";
@@ -14,10 +14,29 @@ const STRATEGY_TABS = [
 export function ScreeningPage() {
   const [activeStrategy, setActiveStrategy] = useState("b1");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const queryClient = useQueryClient();
+
+  const showToast = (type: "success" | "error", msg: string) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const { data: records = [] } = useQuery({
     queryKey: ["selected-records", activeStrategy],
     queryFn: () => api.selectedRecords(activeStrategy),
+  });
+
+  const runScan = useMutation({
+    mutationFn: () => api.runScan(activeStrategy),
+    onSuccess: (data) => {
+      showToast("success", `选股完成：${data.date} 命中 ${data.candidates_count} 只`);
+      queryClient.invalidateQueries({ queryKey: ["selected-records", activeStrategy] });
+      setSelectedDate(data.date);
+    },
+    onError: (err: Error) => {
+      showToast("error", `选股失败：${err.message}`);
+    },
   });
 
   const firstDate = records.length > 0 ? records[0].date : null;
@@ -31,8 +50,8 @@ export function ScreeningPage() {
 
   return (
     <div className="h-full flex flex-col p-6">
-      {/* 策略 Tab 栏 */}
-      <div className="flex gap-3 mb-3">
+      {/* 策略 Tab 栏 + 运行按钮 */}
+      <div className="flex gap-3 mb-3 items-center">
         {STRATEGY_TABS.map((tab) => (
           <button
             key={tab.key}
@@ -50,6 +69,14 @@ export function ScreeningPage() {
             {tab.label}
           </button>
         ))}
+        <button
+          onClick={() => runScan.mutate()}
+          disabled={runScan.isPending}
+          className="ml-auto flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
+        >
+          {runScan.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          {runScan.isPending ? "扫描中..." : `执行 ${activeStrategy} 当天选股`}
+        </button>
       </div>
 
       {/* 日期标签行 */}
@@ -115,6 +142,17 @@ export function ScreeningPage() {
       {/* 空状态 */}
       {!detail && records.length === 0 && (
         <p className="text-zinc-500 text-center mt-20">暂无选股记录</p>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed top-6 right-6 z-50 px-4 py-3 rounded-lg shadow-lg text-sm ${
+          toast.type === "success"
+            ? "bg-green-900/90 border border-green-700 text-green-200"
+            : "bg-red-900/90 border border-red-700 text-red-200"
+        }`}>
+          {toast.msg}
+        </div>
       )}
     </div>
   );
