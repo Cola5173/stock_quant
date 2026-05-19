@@ -460,6 +460,33 @@ def aggregate(daily_values, trades, capital, skipped_days, start, end) -> dict:
     dd = (totals - peak) / peak * 100
     max_dd = float(dd.min())
 
+    # 最大回撤区间定位
+    dates_arr = [v["date"] for v in daily_values]
+    totals_arr = totals.values
+    trough_idx = int(dd.values.argmin())
+    peak_idx = int(totals_arr[:trough_idx + 1].argmax()) if trough_idx > 0 else 0
+    peak_date = dates_arr[peak_idx]
+    trough_date = dates_arr[trough_idx]
+    peak_value = float(totals_arr[peak_idx])
+    trough_value = float(totals_arr[trough_idx])
+
+    period_trades = [
+        {
+            "buy_date": t.buy_date,
+            "sell_date": t.sell_date,
+            "symbol": t.symbol,
+            "name": t.name,
+            "pnl_pct": t.pnl_pct,
+            "pnl": t.pnl,
+            "sell_reason": t.sell_reason,
+        }
+        for t in trades
+        if t.sell_date and peak_date <= t.sell_date <= trough_date
+    ]
+    period_pnl = sum(t["pnl"] for t in period_trades if t["pnl"] is not None)
+    period_wins = sum(1 for t in period_trades if (t["pnl"] or 0) > 0)
+    period_losses = sum(1 for t in period_trades if (t["pnl"] or 0) <= 0)
+
     closed = [t for t in trades if t.sell_date and t.pnl_pct is not None]
     wins = [t for t in closed if t.pnl > 0]
     losses = [t for t in closed if t.pnl <= 0]
@@ -477,6 +504,19 @@ def aggregate(daily_values, trades, capital, skipped_days, start, end) -> dict:
             "total_return_pct": round(total_return, 2),
             "annual_return_pct": round(annual, 2),
             "max_drawdown_pct": round(max_dd, 2),
+            "drawdown_period": {
+                "peak_date": peak_date,
+                "peak_value": round(peak_value, 2),
+                "trough_date": trough_date,
+                "trough_value": round(trough_value, 2),
+                "duration_days": trough_idx - peak_idx,
+                "loss_amount": round(trough_value - peak_value, 2),
+                "trades_count": len(period_trades),
+                "trades_wins": period_wins,
+                "trades_losses": period_losses,
+                "trades_pnl": round(period_pnl, 2),
+                "trades": period_trades,
+            },
             "trades_total": len(trades),
             "trades_closed": len(closed),
             "win_rate_pct": round(win_rate, 2),
@@ -524,6 +564,26 @@ def print_report(result: dict):
         print(f"最差交易        : {w['symbol']} {w['name']}  {w['pnl_pct']:+.2f}%  "
               f"({w['buy_date']} → {w['sell_date']})")
     print(f"大盘禁买跳过日  : {s['skipped_market_days']}")
+
+    # 最大回撤详情
+    dp = s.get("drawdown_period")
+    if dp:
+        print()
+        print("=== 最大回撤详情 ===")
+        print(f"峰值日          : {dp['peak_date']}  净值 {dp['peak_value']:,.0f}")
+        print(f"谷底日          : {dp['trough_date']}  净值 {dp['trough_value']:,.0f}")
+        print(f"持续天数        : {dp['duration_days']} 个交易日")
+        print(f"亏损金额        : {dp['loss_amount']:+,.0f}")
+        print(f"期间交易        : {dp['trades_count']} 笔（盈 {dp['trades_wins']} / 亏 {dp['trades_losses']}）"
+              f"  累计 PnL {dp['trades_pnl']:+,.0f}")
+        if dp["trades"]:
+            print(f"{'代码':<8}{'名称':<10}{'买入':<12}{'卖出':<12}{'盈亏%':>9}  原因")
+            for t in dp["trades"]:
+                nm = (t["name"] or "")[:8]
+                print(f"{t['symbol']:<8}{nm:<10}"
+                      f"{t['buy_date']:<12}{(t['sell_date'] or '-'):<12}"
+                      f"{(t['pnl_pct'] or 0):>+9.2f}  {t['sell_reason']}")
+
     print()
     print("=== 交易明细 ===")
     print(f"{'#':<3}{'代码':<8}{'名称':<10}{'买入日':<12}{'卖出日':<12}"
