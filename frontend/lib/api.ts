@@ -42,4 +42,13 @@ export const api = {
     http<SelectedDetail>(`/api/selected/${strategy}/${date}`),
   advisorLatest: () =>
     http<{ positions: Record<string, unknown>; decision: Record<string, unknown> | null }>("/api/advisor/latest"),
+  updatePositions: (data: Record<string, unknown>) =>
+    http<{ status: string }>("/api/advisor/positions", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  runDecision: (date?: string) =>
+    http<Record<string, unknown>>(`/api/advisor/run-decision${date ? `?date=${date}` : ""}`, {
+      method: "POST",
+    }),
 };
