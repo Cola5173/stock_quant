@@ -40,4 +40,6 @@ export const api = {
     http<SelectedRecord[]>(`/api/selected/${strategy}/records`),
   selectedDetail: (strategy: string, date: string) =>
     http<SelectedDetail>(`/api/selected/${strategy}/${date}`),
+  advisorLatest: () =>
+    http<{ positions: Record<string, unknown>; decision: Record<string, unknown> | null }>("/api/advisor/latest"),
 };

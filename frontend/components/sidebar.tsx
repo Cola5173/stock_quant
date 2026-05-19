@@ -1,6 +1,6 @@
 "use client";
 
-import { LineChart, Search, Library, CandlestickChart, FlaskConical, Settings } from "lucide-react";
+import { LineChart, Search, Library, CandlestickChart, FlaskConical, Settings, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { key: "chart", label: "K线图表", icon: CandlestickChart },
   { key: "backtest", label: "个股回测", icon: FlaskConical },
   { key: "screening", label: "选股", icon: Search },
+  { key: "live", label: "实盘", icon: Activity },
   { key: "library", label: "策略库", icon: Library },
 ] as const;
 

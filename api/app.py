@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import stocks, backtest, stats, fetch, selected
+from api.routes import stocks, backtest, stats, fetch, selected, advisor
 
 app = FastAPI(
     title="Cola Quant API",
@@ -28,6 +28,7 @@ app.include_router(backtest.router)
 app.include_router(stats.router)
 app.include_router(fetch.router)
 app.include_router(selected.router)
+app.include_router(advisor.router)
 
 
 @app.get("/api/health")

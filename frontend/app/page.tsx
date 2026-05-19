@@ -15,6 +15,7 @@ import { StockInfoPanel } from "@/components/stock-info-panel";
 import { ChartToolbar, aggregateToWeekly, type Granularity, type TimeRange } from "@/components/chart-toolbar";
 import { SettingsPage } from "@/components/settings-page";
 import { ScreeningPage } from "@/components/screening-page";
+import { LiveTradingPage } from "@/components/live-trading-page";
 import type { BacktestRequest, BacktestResponse, StockItem } from "@/lib/types";
 
 function getDateRange(range: TimeRange): { start: string; end: string } {
@@ -227,6 +228,11 @@ export default function HomePage() {
           {/* 选股 */}
           {navActive === "screening" && (
             <ScreeningPage />
+          )}
+
+          {/* 实盘 */}
+          {navActive === "live" && (
+            <LiveTradingPage />
           )}
 
           {/* 设置 */}
