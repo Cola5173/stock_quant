@@ -57,7 +57,7 @@ function PortfolioBacktestList({ onSelect }: { onSelect: (id: string) => void })
   };
 
   return (
-    <div className="h-full flex flex-col p-6">
+    <div className="h-full flex flex-col">
       <div className="flex items-center justify-between mb-2">
         <div>
           <h1 className="text-xl font-semibold text-zinc-100">策略回测</h1>
@@ -275,7 +275,7 @@ function PortfolioBacktestDetail({ runId, onBack }: { runId: string; onBack: () 
   const totalReturn = Number(stats.total_return_pct ?? 0);
 
   return (
-    <div className="h-full overflow-y-auto p-4 space-y-3">
+    <div className="h-full overflow-y-auto space-y-3">
       {/* 头部导航 */}
       <div className="flex items-center justify-between">
         <button

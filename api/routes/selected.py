@@ -4,7 +4,7 @@ import os
 import threading
 import uuid
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 from fastapi import APIRouter, HTTPException
 
@@ -20,6 +20,10 @@ router = APIRouter(prefix="/api/selected", tags=["selected"])
 
 # 内存任务池（进程级，重启清空）
 _tasks: Dict[str, Dict[str, Any]] = {}
+# (strategy, date) -> task_id  仅追踪 running 任务，用于去重
+_running_index: Dict[Tuple[str, str], str] = {}
+# 保护 _tasks 与 _running_index 的并发访问
+_tasks_lock = threading.Lock()
 
 
 @router.get("/strategies")
@@ -42,12 +46,32 @@ def get_detail(strategy: str, date: str) -> Dict[str, Any]:
 
 @router.post("/{strategy}/run")
 def run_scan(strategy: str, date: str = None) -> Dict[str, Any]:
-    """异步执行选股扫描，立即返回 task_id"""
+    """异步执行选股扫描，立即返回 task_id。
+    同 strategy + date 已在运行时复用已有任务，避免重复触发。
+    """
     if not date:
         date = datetime.now().strftime("%Y-%m-%d")
 
-    task_id = str(uuid.uuid4())[:8]
-    _tasks[task_id] = {"status": "running", "strategy": strategy, "date": date}
+    key = (strategy, date)
+    with _tasks_lock:
+        existing_id = _running_index.get(key)
+        if existing_id is not None:
+            existing = _tasks.get(existing_id)
+            if existing and existing.get("status") == "running":
+                logger.info(f"复用进行中的选股任务 {existing_id} ({strategy}/{date})")
+                return {
+                    "status": "running",
+                    "task_id": existing_id,
+                    "strategy": strategy,
+                    "date": date,
+                    "deduped": True,
+                }
+            # 状态不一致：清掉索引
+            _running_index.pop(key, None)
+
+        task_id = str(uuid.uuid4())[:8]
+        _tasks[task_id] = {"status": "running", "strategy": strategy, "date": date}
+        _running_index[key] = task_id
 
     thread = threading.Thread(target=_run_scan_worker, args=(task_id, strategy, date), daemon=True)
     thread.start()
@@ -68,6 +92,7 @@ def _run_scan_worker(task_id: str, strategy: str, date: str):
     """后台线程执行选股"""
     from api.scanner.scanner import Scanner
 
+    key = (strategy, date)
     try:
         stock_list_file = settings.STOCK_LIST_CACHE
         if not os.path.exists(stock_list_file):
@@ -103,4 +128,9 @@ def _run_scan_worker(task_id: str, strategy: str, date: str):
         logger.error(f"选股任务 {task_id} 失败: {e}", exc_info=True)
         _tasks[task_id] = {"status": "error", "error": str(e),
                            "strategy": strategy, "date": date}
+    finally:
+        # 不论成功/失败都从 running 索引中移除，允许后续重新触发
+        with _tasks_lock:
+            if _running_index.get(key) == task_id:
+                _running_index.pop(key, None)
 

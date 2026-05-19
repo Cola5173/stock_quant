@@ -20,14 +20,15 @@ export function Sidebar({ active, onChange }: { active: NavKey; onChange: (k: Na
       <button
         onClick={() => onChange("home")}
         className={cn(
-          "w-11 h-11 rounded-lg flex items-center justify-center mb-3 shrink-0 transition-colors",
+          "w-14 h-14 rounded-lg flex flex-col items-center justify-center gap-1 mb-3 shrink-0 transition-colors",
           active === "home"
-            ? "bg-blue-600 ring-2 ring-blue-400"
-            : "bg-blue-600 hover:bg-blue-500"
+            ? "bg-blue-600/20 text-blue-400"
+            : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60"
         )}
         title="首页"
       >
-        <LineChart className="w-6 h-6 text-white" />
+        <LineChart className="w-5 h-5" />
+        <span className="text-xs">首页</span>
       </button>
       <div className="flex-1 flex flex-col items-center gap-2">
         {NAV_ITEMS.map((item) => {

@@ -515,8 +515,30 @@ def aggregate(daily_values, trades, capital, skipped_days, start, end) -> dict:
     win_rate = len(wins) / len(closed) * 100 if closed else 0
     avg_win_pct = float(np.mean([t.pnl_pct for t in wins])) if wins else 0
     avg_loss_pct = float(np.mean([t.pnl_pct for t in losses])) if losses else 0
-    best = max(closed, key=lambda t: t.pnl_pct) if closed else None
-    worst = min(closed, key=lambda t: t.pnl_pct) if closed else None
+
+    # 按"持仓"聚合：相同 symbol + buy_date 的多笔分批卖出合并为一笔交易
+    # 否则 max(pnl_pct) 会把分批止盈的最后一笔（成本不变但卖价最高）当成最佳
+    from collections import defaultdict
+    position_groups: dict = defaultdict(list)
+    for t in closed:
+        position_groups[(t.symbol, t.buy_date)].append(t)
+    position_summaries = []
+    for (sym, buy_dt), trs in position_groups.items():
+        total_cost = sum((tr.buy_price or 0) * (tr.shares or 0) for tr in trs)
+        total_revenue = sum((tr.sell_price or 0) * (tr.shares or 0) for tr in trs)
+        total_pnl = sum(tr.pnl or 0 for tr in trs)
+        pnl_pct = (total_revenue - total_cost) / total_cost * 100 if total_cost > 0 else 0
+        last_sell = max((tr.sell_date for tr in trs if tr.sell_date), default=None)
+        position_summaries.append({
+            "symbol": sym,
+            "name": trs[0].name,
+            "pnl_pct": round(pnl_pct, 2),
+            "pnl": round(total_pnl, 2),
+            "buy_date": buy_dt,
+            "sell_date": last_sell,
+        })
+    best = max(position_summaries, key=lambda p: p["pnl_pct"]) if position_summaries else None
+    worst = min(position_summaries, key=lambda p: p["pnl_pct"]) if position_summaries else None
 
     return {
         "period": {"start": start, "end": end, "days": days},
@@ -544,16 +566,8 @@ def aggregate(daily_values, trades, capital, skipped_days, start, end) -> dict:
             "win_rate_pct": round(win_rate, 2),
             "avg_win_pct": round(avg_win_pct, 2),
             "avg_loss_pct": round(avg_loss_pct, 2),
-            "best_trade": {
-                "symbol": best.symbol, "name": best.name,
-                "pnl_pct": best.pnl_pct, "pnl": best.pnl,
-                "buy_date": best.buy_date, "sell_date": best.sell_date,
-            } if best else None,
-            "worst_trade": {
-                "symbol": worst.symbol, "name": worst.name,
-                "pnl_pct": worst.pnl_pct, "pnl": worst.pnl,
-                "buy_date": worst.buy_date, "sell_date": worst.sell_date,
-            } if worst else None,
+            "best_trade": best,
+            "worst_trade": worst,
             "skipped_market_days": skipped_days,
         },
         "trades": [t.__dict__ for t in trades],

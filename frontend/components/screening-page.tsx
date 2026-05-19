@@ -70,7 +70,7 @@ export function ScreeningPage() {
   });
 
   return (
-    <div className="h-full flex flex-col p-4">
+    <div className="h-full flex flex-col">
       {/* 顶部：策略标签 + 执行按钮 */}
       <div className="flex gap-2 mb-2 items-center">
         {strategies.map((s) => (
@@ -78,7 +78,7 @@ export function ScreeningPage() {
             key={s.key}
             onClick={() => { setActiveStrategy(s.key); setSelectedDate(null); }}
             className={cn(
-              "px-4 py-1.5 text-xs rounded-full border transition-colors",
+              "px-4 py-1.5 text-sm font-bold rounded-full border transition-colors",
               activeStrategy === s.key
                 ? "bg-red-600 border-red-600 text-white"
                 : "bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500"

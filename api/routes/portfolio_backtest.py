@@ -61,19 +61,29 @@ def list_strategies():
 
 @router.get("/runs")
 def list_runs():
-    """列出所有历史回测结果（按时间倒序）"""
+    """列出所有历史回测结果（按时间倒序）。
+    新文件名：{yyyy-mm-dd}-{strategy}.json （执行日期）
+    旧文件名：{strategy}_{start}_{end}.json （保留向后兼容）
+    """
     pattern = os.path.join(settings.PORTFOLIO_DIR, "*.json")
+    new_name_re = re.compile(r"^(\d{4}-\d{2}-\d{2})-(b1_small|b1_top2)\.json$")
+    old_name_re = re.compile(r"^(b1_small|b1_top2|small_capital)_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.json$")
     runs = []
     for path in glob(pattern):
         filename = os.path.basename(path)
-        # 解析文件名：{strategy_key}_{start}_{end}.json
-        m = re.match(r"^(b1_small|b1_top2|small_capital)_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.json$", filename)
-        if not m:
-            continue
-        strategy_key, start, end = m.group(1), m.group(2), m.group(3)
-        # 兼容旧文件名
-        if strategy_key == "small_capital":
-            strategy_key = "b1_small"
+        strategy_key = None
+        start = end = None
+
+        m_new = new_name_re.match(filename)
+        if m_new:
+            strategy_key = m_new.group(2)
+        else:
+            m_old = old_name_re.match(filename)
+            if not m_old:
+                continue
+            strategy_key, start, end = m_old.group(1), m_old.group(2), m_old.group(3)
+            if strategy_key == "small_capital":
+                strategy_key = "b1_small"
 
         try:
             stat = os.stat(path)
@@ -81,6 +91,11 @@ def list_runs():
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             stats = data.get("stats", {})
+            # 新命名没把 start/end 编进文件名，从 JSON 的 period 字段读
+            if start is None or end is None:
+                period = data.get("period", {})
+                start = period.get("start") or start
+                end = period.get("end") or end
             runs.append({
                 "id": filename,
                 "strategy_key": strategy_key,
@@ -112,11 +127,17 @@ def get_run_detail(run_id: str):
         raise HTTPException(404, "未找到该回测记录")
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    # 解析策略 key
-    m = re.match(r"^(b1_small|b1_top2|small_capital)_", run_id)
-    strategy_key = m.group(1) if m else "unknown"
-    if strategy_key == "small_capital":
-        strategy_key = "b1_small"
+    # 解析策略 key：先尝试新命名，再 fallback 旧命名
+    strategy_key = "unknown"
+    m_new = re.match(r"^\d{4}-\d{2}-\d{2}-(b1_small|b1_top2)\.json$", run_id)
+    if m_new:
+        strategy_key = m_new.group(1)
+    else:
+        m_old = re.match(r"^(b1_small|b1_top2|small_capital)_", run_id)
+        if m_old:
+            strategy_key = m_old.group(1)
+            if strategy_key == "small_capital":
+                strategy_key = "b1_small"
     data["strategy_key"] = strategy_key
     data["strategy_meta"] = STRATEGY_META.get(strategy_key, {})
     data["id"] = run_id
@@ -125,7 +146,9 @@ def get_run_detail(run_id: str):
 
 @router.post("/run")
 def run_backtest(req: BacktestRunRequest, background_tasks: BackgroundTasks):
-    """触发新的回测（后台执行）"""
+    """触发新的回测（后台执行）。
+    结果文件名：{执行日期 yyyy-mm-dd}-{strategy}.json，同日重复执行会覆盖。
+    """
     if req.strategy not in STRATEGY_META:
         raise HTTPException(400, f"未知策略: {req.strategy}")
     meta = STRATEGY_META[req.strategy]
@@ -133,13 +156,14 @@ def run_backtest(req: BacktestRunRequest, background_tasks: BackgroundTasks):
     if not os.path.exists(script):
         raise HTTPException(500, f"脚本不存在: {script}")
 
+    exec_date = datetime.now().strftime("%Y-%m-%d")
     out_path = os.path.join(
         settings.PORTFOLIO_DIR,
-        f"{req.strategy}_{req.start}_{req.end}.json"
+        f"{exec_date}-{req.strategy}.json"
     )
     log_path = os.path.join(
         settings.PORTFOLIO_DIR,
-        f".running_{req.strategy}_{req.start}_{req.end}.log"
+        f".running_{exec_date}-{req.strategy}.log"
     )
 
     def _run():
@@ -170,15 +194,23 @@ def run_backtest(req: BacktestRunRequest, background_tasks: BackgroundTasks):
 def list_running():
     """查询当前正在运行的回测任务"""
     pattern = os.path.join(settings.PORTFOLIO_DIR, ".running_*.log")
+    new_re = re.compile(r"^\.running_(\d{4}-\d{2}-\d{2})-(b1_small|b1_top2)\.log$")
+    old_re = re.compile(r"^\.running_(b1_small|b1_top2)_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.log$")
     running = []
     for path in glob(pattern):
         filename = os.path.basename(path)
-        m = re.match(r"^\.running_(b1_small|b1_top2)_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})\.log$", filename)
-        if not m:
+        m_new = new_re.match(filename)
+        if m_new:
+            running.append({
+                "strategy_key": m_new.group(2),
+                "exec_date": m_new.group(1),
+            })
             continue
-        running.append({
-            "strategy_key": m.group(1),
-            "start": m.group(2),
-            "end": m.group(3),
-        })
+        m_old = old_re.match(filename)
+        if m_old:
+            running.append({
+                "strategy_key": m_old.group(1),
+                "start": m_old.group(2),
+                "end": m_old.group(3),
+            })
     return running

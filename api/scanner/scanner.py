@@ -1,20 +1,50 @@
 """
 批量筛选引擎
 对全市场股票进行策略条件扫描，找出候选股票
+评分逻辑复用 tests/scan_b1_full.check_one（与 tests/portfolio_b1_small.py 一致）
 """
 import json
 import logging
 import os
+import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import List, Optional
 
-import pandas as pd
-
 from api.config import settings
-from api.indicator.indicators import calculate_KDJ, calculate_zx_trend, calculate_amplitude
-from api.schemas.kline_constants import KLineConstants
 from api.utils.utils import _normalize_stock_code
 
 logger = logging.getLogger(__name__)
+
+# 确保 tests/ 可被导入（与 portfolio_b1_small.py 用法一致）
+_PROJECT_ROOT = settings.PROJECT_ROOT
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+
+# b1_small 主板前缀
+_MAIN_BOARD_PREFIXES = ("600", "000", "001")
+# b1_small 价格上限
+_B1_SMALL_MAX_PRICE = 100.0
+# 默认并发 worker 数
+_DEFAULT_WORKERS = 8
+
+
+def _scan_worker(args: tuple) -> Optional[dict]:
+    """进程池 worker：单只股票打分。
+    放在模块顶层以保证可被 pickle，供 ProcessPoolExecutor 调用。
+    """
+    strategy_name, symbol, date = args
+    try:
+        from tests.scan_b1_full import check_one as scan_b1_check_one
+        result = scan_b1_check_one((symbol, date))
+        if result is None:
+            return None
+        if strategy_name == "b1_small" and float(result.get("close", 0)) > _B1_SMALL_MAX_PRICE:
+            return None
+        return result
+    except Exception as e:
+        logger.debug(f"扫描 {symbol} 失败: {e}")
+        return None
 
 
 class Scanner:
@@ -22,138 +52,77 @@ class Scanner:
 
     def __init__(self, strategy_name: str, stock_list: List[str]):
         """
-        :param strategy_name: 策略名称（如 'b1'）
+        :param strategy_name: 策略名称（如 'b1_small'）
         :param stock_list: 股票代码列表（格式：sh.600000 或纯数字 600000）
         """
         self.strategy_name = strategy_name
         self.stock_list = stock_list
-        self._extra_info = self._load_extra_info()
+        self._st_set = self._load_st_set()
 
-    def _load_extra_info(self) -> dict:
+    def _load_st_set(self) -> set:
         path = os.path.join(settings.DATA_DIR, "stock_extra_info.json")
-        if os.path.exists(path):
+        if not os.path.exists(path):
+            return set()
+        try:
             with open(path, "r") as f:
-                return json.load(f)
-        return {}
+                data = json.load(f)
+            return {k for k, v in data.items() if v.get("is_st", False)}
+        except Exception:
+            return set()
 
-    def scan(self, date: str) -> List[dict]:
+    @staticmethod
+    def _is_main_board(symbol: str) -> bool:
+        return symbol.startswith(_MAIN_BOARD_PREFIXES)
+
+    def scan(self, date: str, workers: int = _DEFAULT_WORKERS) -> List[dict]:
         """
-        扫描全市场，返回候选股票列表
+        扫描全市场，返回候选股票列表（按评分降序）
         :param date: 扫描日期（YYYY-MM-DD）
+        :param workers: 并发进程数，默认 8
         :return: 候选股票列表
         """
-        from tqdm import tqdm
+        # 前置过滤：归一化代码 + b1_small 主板/ST 过滤
+        tasks = []
+        for stock_code in self.stock_list:
+            symbol = _normalize_stock_code(stock_code)
+            if self.strategy_name == "b1_small":
+                if not self._is_main_board(symbol):
+                    continue
+                if symbol in self._st_set:
+                    continue
+            tasks.append((self.strategy_name, symbol, date))
 
-        candidates = []
-        skipped = 0
+        candidates: List[dict] = []
+        total = len(tasks)
+        done = 0
 
-        for stock_code in tqdm(self.stock_list, desc="扫描股票"):
-            try:
-                symbol = _normalize_stock_code(stock_code)
-                result = self._check_stock(symbol, date)
-                if result:
-                    candidates.append(result)
-            except Exception as e:
-                logger.debug(f"扫描 {stock_code} 失败: {e}")
-                skipped += 1
-                continue
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_scan_worker, t) for t in tasks]
+            for fut in as_completed(futures):
+                done += 1
+                try:
+                    result = fut.result()
+                    if result:
+                        candidates.append(result)
+                except Exception as e:
+                    logger.debug(f"worker 异常: {e}")
+                if done % 500 == 0 or done == total:
+                    logger.info(f"扫描进度 {done}/{total}，命中 {len(candidates)}")
 
-        logger.info(f"扫描完成: {len(candidates)} 只候选 / {len(self.stock_list)} 只总计 / {skipped} 只跳过")
+        # 按评分降序排序（评分越高越优先）
+        candidates.sort(key=lambda r: -int(r.get("score", 0)))
+
+        logger.info(f"扫描完成: {len(candidates)} 只候选 / {total} 只参与扫描 / 共 {len(self.stock_list)} 只输入")
         return candidates
 
     def _check_stock(self, symbol: str, date: str) -> Optional[dict]:
-        """
-        检查单只股票是否符合策略买入条件
-        :return: 匹配则返回候选信息字典，否则返回 None
-        """
-        df = self._load_stock_data(symbol, date)
-        if df is None or len(df) < 30:
-            return None
-
-        # 计算指标
-        try:
-            kdj = calculate_KDJ(df)
-            zx = calculate_zx_trend(df)
-            amp = calculate_amplitude(df)
-        except Exception:
-            return None
-
-        # 涨跌停检测
-        if len(df) < 2:
-            return None
-        prev_close = df[KLineConstants.CLOSE].iloc[-2]
-        curr_close = df[KLineConstants.CLOSE].iloc[-1]
-        limit_rate = self._get_limit_rate(symbol)
-        pct = (curr_close - prev_close) / prev_close if prev_close > 0 else 0
-        at_upper_limit = pct >= limit_rate - 0.001
-
-        # 应用 B1 策略买入条件
-        matched = self._apply_b1_filter(kdj, zx, curr_close, at_upper_limit)
-
-        if not matched:
-            return None
-
-        return {
-            "symbol": symbol,
-            "name": self._get_stock_name(symbol),
-            "match_date": date,
-            "close": curr_close,
-            "indicators": {
-                "kdj_j": kdj["J"],
-                "kdj_k": kdj["K"],
-                "kdj_d": kdj["D"],
-                "zx_white": zx["zx_trend_white"],
-                "zx_yellow": zx["zx_trend_yellow"],
-                "amplitude": amp["amplitude"],
-            }
-        }
-
-    def _apply_b1_filter(self, kdj: dict, zx: dict, close: float, at_upper_limit: bool) -> bool:
-        """B1 策略买入条件"""
-        return (
-            not at_upper_limit
-            and kdj["J"] < 13
-            and zx["zx_trend_white"] > zx["zx_trend_yellow"]
-            and close > zx["zx_trend_yellow"] * 0.99
-        )
-
-    def _load_stock_data(self, symbol: str, date: str) -> Optional[pd.DataFrame]:
-        """从 CSV 文件加载股票数据（最近 200 天）"""
-        csv_path = os.path.join(settings.DATA_DIR, f"{symbol}.csv")
-        if not os.path.exists(csv_path):
-            return None
-
-        try:
-            df = pd.read_csv(csv_path)
-            if df.empty:
+        """单只股票检查（同 _scan_worker，保留供单元测试/调试调用）"""
+        if self.strategy_name == "b1_small":
+            if not self._is_main_board(symbol):
                 return None
-
-            for col in [KLineConstants.OPEN, KLineConstants.HIGH, KLineConstants.LOW,
-                        KLineConstants.CLOSE, KLineConstants.VOLUME]:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors="coerce")
-
-            df[KLineConstants.DATE] = pd.to_datetime(df[KLineConstants.DATE])
-            df = df[df[KLineConstants.DATE] <= pd.to_datetime(date)]
-            df = df.sort_values(KLineConstants.DATE).tail(200).reset_index(drop=True)
-
-            if df.empty:
+            if symbol in self._st_set:
                 return None
-            return df
-        except Exception:
-            return None
-
-    def _get_limit_rate(self, symbol: str) -> float:
-        info = self._extra_info.get(symbol, {})
-        if info.get("is_st", False):
-            return 0.05
-        if symbol.startswith("30") or symbol.startswith("68"):
-            return 0.20
-        return 0.10
-
-    def _get_stock_name(self, symbol: str) -> str:
-        """尝试从 CSV 数据中获取股票名称"""
-        return symbol
+        return _scan_worker((self.strategy_name, symbol, date))
 
     def save_candidates(self, candidates: List[dict], date: str) -> str:
         """

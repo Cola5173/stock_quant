@@ -7,6 +7,8 @@ import time
 import random
 import logging
 import contextlib
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional, Set
 from datetime import datetime, timedelta
 
@@ -22,6 +24,9 @@ logger = logging.getLogger(__name__)
 # 请求间隔（秒），避免被东方财富限流
 REQUEST_INTERVAL_MIN = 3.0
 REQUEST_INTERVAL_MAX = 5.0
+
+# 并发拉取的 worker 数（保守值，单 worker 仍保留 3~5s sleep）
+FETCH_WORKERS = 4
 
 
 def _random_sleep():
@@ -95,7 +100,7 @@ class AkShareDataFetcher(DataFetcher):
 
     def fetch(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> None:
         """
-        批量下载股票数据
+        批量下载股票数据（并发版）
         :param start_date: 起始日期 YYYY-MM-DD
         :param end_date: 结束日期 YYYY-MM-DD
         """
@@ -115,61 +120,75 @@ class AkShareDataFetcher(DataFetcher):
         ak_start = start_date.replace("-", "") if start_date else "20240101"
         ak_end = end_date.replace("-", "") if end_date else datetime.now().strftime('%Y%m%d')
 
-        print(f"step 1.2: ----> 开始下载K线数据 [{start_date} ~ {end_date}]...")
-        failed_count = 0
-        success_count = 0
-        skipped_count = 0
+        print(f"step 1.2: ----> 开始下载K线数据 [{start_date} ~ {end_date}]，并发 {FETCH_WORKERS}...")
 
-        pbar = tqdm(sorted(stock_codes, key=_normalize_stock_code), desc="下载数据")
-        for stock_code in pbar:
-            try:
-                symbol = _normalize_stock_code(stock_code)
-                pbar.set_description(f"download {symbol} K line data")
+        sorted_codes = sorted(stock_codes, key=_normalize_stock_code)
+        counters = {"success": 0, "fail": 0, "skipped": 0}
+        counters_lock = threading.Lock()
 
-                ak_start_ts = pd.to_datetime(ak_start)
-                ak_end_ts = pd.to_datetime(ak_end)
-                existing_df = self._load_stock_data(symbol)
+        with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+            futures = {
+                pool.submit(self._fetch_one_incremental, code, ak_start, ak_end): code
+                for code in sorted_codes
+            }
+            with tqdm(total=len(futures), desc="下载数据") as pbar:
+                for fut in as_completed(futures):
+                    code = futures[fut]
+                    try:
+                        status = fut.result()
+                    except Exception as e:
+                        status = "fail"
+                        logger.debug(f"下载 {code} 异常: {e}")
+                    with counters_lock:
+                        counters[status] = counters.get(status, 0) + 1
+                    pbar.update(1)
+                    pbar.set_postfix(ok=counters["success"], skip=counters["skipped"], fail=counters["fail"])
 
-                # 计算需要拉取的区间（可能 0~2 段）
-                ranges = []
-                if existing_df.empty:
-                    ranges.append((ak_start, ak_end))
-                else:
-                    local_min = existing_df[KLineConstants.DATE].min()
-                    local_max = existing_df[KLineConstants.DATE].max()
-                    if ak_start_ts < local_min:
-                        backfill_end = (local_min - timedelta(days=1)).strftime('%Y%m%d')
-                        ranges.append((ak_start, backfill_end))
-                    if ak_end_ts > local_max:
-                        forward_start = (local_max + timedelta(days=1)).strftime('%Y%m%d')
-                        ranges.append((forward_start, ak_end))
+        print("step 1.3: ----> 下载完成！")
+        print(f"  - 成功: {counters['success']} 只股票")
+        print(f"  - 跳过: {counters['skipped']} 只股票（本地已是最新）")
+        print(f"  - 失败: {counters['fail']} 只股票")
 
-                if not ranges:
-                    suffix = "SH" if symbol.startswith("6") else "SZ"
-                    tqdm.write(f"skip {symbol}.{suffix} local data already up to date")
-                    skipped_count += 1
-                    continue
+    def _fetch_one_incremental(self, stock_code: str, ak_start: str, ak_end: str) -> str:
+        """
+        单只股票增量拉取的完整流程：
+        1. 计算需要补的区间（最多两段：backfill + forward）
+        2. 命中跳过条件直接 return "skipped"
+        3. 调用 _fetch_single_stock + _save_stock_data
+        :return: "success" | "skipped" | "fail"
+        """
+        try:
+            symbol = _normalize_stock_code(stock_code)
+            ak_start_ts = pd.to_datetime(ak_start)
+            ak_end_ts = pd.to_datetime(ak_end)
+            existing_df = self._load_stock_data(symbol)
 
-                fetched = False
-                for r_start, r_end in ranges:
-                    df = self._fetch_single_stock(symbol, r_start, r_end)
-                    if df is not None and not df.empty:
-                        self._save_stock_data(symbol, df)
-                        fetched = True
-                    _random_sleep()
+            ranges = []
+            if existing_df.empty:
+                ranges.append((ak_start, ak_end))
+            else:
+                local_min = existing_df[KLineConstants.DATE].min()
+                local_max = existing_df[KLineConstants.DATE].max()
+                if ak_start_ts < local_min:
+                    backfill_end = (local_min - timedelta(days=1)).strftime('%Y%m%d')
+                    ranges.append((ak_start, backfill_end))
+                if ak_end_ts > local_max:
+                    forward_start = (local_max + timedelta(days=1)).strftime('%Y%m%d')
+                    ranges.append((forward_start, ak_end))
 
-                if fetched:
-                    success_count += 1
+            if not ranges:
+                return "skipped"
 
-            except Exception as e:
-                failed_count += 1
-                logger.debug(f"下载 {stock_code} 失败: {e}")
-                continue
-
-        print(f"step 1.3: ----> 下载完成！")
-        print(f"  - 成功: {success_count} 只股票")
-        print(f"  - 跳过: {skipped_count} 只股票（本地已是最新）")
-        print(f"  - 失败: {failed_count} 只股票")
+            fetched = False
+            for r_start, r_end in ranges:
+                df = self._fetch_single_stock(symbol, r_start, r_end)
+                if df is not None and not df.empty:
+                    self._save_stock_data(symbol, df)
+                    fetched = True
+            return "success" if fetched else "skipped"
+        except Exception as e:
+            logger.debug(f"下载 {stock_code} 失败: {e}")
+            return "fail"
 
     def _fetch_single_stock(self, symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """

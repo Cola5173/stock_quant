@@ -36,23 +36,47 @@ _state: dict = {
     "started_at": None,
     "finished_at": None,
     "error": None,
+    # 上一次成功完成的目标交易日（用于复用：同一天再触发直接跳过）
+    "last_target_date": None,
 }
 _lock = threading.Lock()
 
 
 def get_status() -> FetchStatus:
     with _lock:
-        return FetchStatus(**_state)
+        # FetchStatus 字段固定，额外的 last_target_date 不影响 pydantic
+        snapshot = {k: v for k, v in _state.items() if k != "last_target_date"}
+        return FetchStatus(**snapshot)
 
 
-def start_fetch_latest(source: str = "akshare") -> bool:
+def start_fetch_latest(source: str = "akshare") -> dict:
     """
-    启动后台拉取任务。如果已有任务在跑则返回 False。
-    拉取从今天往回 7 天（足以覆盖周末 + 节假日）到今天。
+    启动后台拉取任务。
+    返回 dict: { started: bool, reason: str, target_date: str }
+    - 已有任务在跑：复用，started=False, reason='running'
+    - 本次目标日已是最新（标杆股本地数据 >= target）：跳过，started=False, reason='up_to_date'
+    - 新任务启动：started=True, reason='launched'
     """
+    target_date = get_target_trade_date()
+    target_str = target_date.strftime("%Y-%m-%d")
+
     with _lock:
         if _state["running"]:
-            return False
+            return {
+                "started": False,
+                "reason": "running",
+                "target_date": target_str,
+                "source": _state.get("source"),
+            }
+        # 已是最新 → 不启动任务，直接复用结果
+        if _is_market_up_to_date(target_str):
+            _state["last_target_date"] = target_str
+            return {
+                "started": False,
+                "reason": "up_to_date",
+                "target_date": target_str,
+                "source": source,
+            }
         _state.update({
             "running": True,
             "source": source,
@@ -61,9 +85,14 @@ def start_fetch_latest(source: str = "akshare") -> bool:
             "error": None,
         })
 
-    thread = threading.Thread(target=_run_fetch, args=(source,), daemon=True)
+    thread = threading.Thread(target=_run_fetch, args=(source, target_date), daemon=True)
     thread.start()
-    return True
+    return {
+        "started": True,
+        "reason": "launched",
+        "target_date": target_str,
+        "source": source,
+    }
 
 
 def _is_market_up_to_date(target_date_str: str) -> bool:
@@ -85,20 +114,20 @@ def _is_market_up_to_date(target_date_str: str) -> bool:
         return False
 
 
-def _run_fetch(source: str):
+def _run_fetch(source: str, target_date):
     try:
-        # 计算"目标交易日"——盘前/盘中点击会自动对齐到上一个交易日，避免拉到不完整 K 线
-        target_date = get_target_trade_date()
         target_str = target_date.strftime("%Y-%m-%d")
         # 拉取窗口：目标交易日往回 7 天，覆盖周末/节假日触发增量逻辑
         start = (target_date - timedelta(days=7)).strftime("%Y-%m-%d")
         end = target_str
 
-        # 前置短路：标杆股已是最新 → 跳过整个流程
+        # 双重保险：进入后台后再检查一次（防止两次触发抢跑）
         if _is_market_up_to_date(target_str):
             logger.info(
                 f"市场已是最新（标杆股 {BENCHMARK_STOCK} 本地数据 ≥ {target_str}），跳过本次拉取"
             )
+            with _lock:
+                _state["last_target_date"] = target_str
             return
 
         logger.info(f"开始拉取数据：source={source}, 区间 {start} ~ {end}（目标交易日 {target_str}）")
@@ -109,6 +138,9 @@ def _run_fetch(source: str):
 
         # 2) 拉指数（始终使用 tushare）
         _fetch_indices(start, end)
+
+        with _lock:
+            _state["last_target_date"] = target_str
     except Exception as e:
         with _lock:
             _state["error"] = str(e)
