@@ -11,8 +11,13 @@ import pandas as pd
 
 from api.config import settings
 from api.schemas.models import FetchStatus
+from api.utils.trade_calendar import get_target_trade_date
 
 logger = logging.getLogger(__name__)
+
+# 标杆股：用平安银行（000001）作为"市场是否已最新"的探针
+# 选它的原因：A 股代码最早、几乎从未停牌、常年活跃
+BENCHMARK_STOCK = "000001"
 
 # 需要拉取的指数（指数源始终使用 tushare，因 ths_daily 仅 tushare 提供）
 INDICES = [
@@ -61,12 +66,42 @@ def start_fetch_latest(source: str = "akshare") -> bool:
     return True
 
 
+def _is_market_up_to_date(target_date_str: str) -> bool:
+    """
+    用标杆股（000001）的本地 CSV 最新日期判断全市场是否已是最新。
+    命中则跳过整个拉取流程；未命中则正常走单股增量逻辑。
+    """
+    csv_path = os.path.join(settings.DATA_DIR, f"{BENCHMARK_STOCK}.csv")
+    if not os.path.exists(csv_path):
+        return False
+    try:
+        df = pd.read_csv(csv_path, parse_dates=["date"])
+        if df.empty:
+            return False
+        local_max = df["date"].max().strftime("%Y-%m-%d")
+        return local_max >= target_date_str
+    except Exception as e:
+        logger.debug(f"标杆股 {BENCHMARK_STOCK} 短路检查失败（忽略）: {e}")
+        return False
+
+
 def _run_fetch(source: str):
     try:
-        # 拉取窗口：今天往回 7 天，覆盖周末/节假日，触发增量逻辑补到今天
-        today = datetime.now().date()
-        start = (today - timedelta(days=7)).strftime("%Y-%m-%d")
-        end = today.strftime("%Y-%m-%d")
+        # 计算"目标交易日"——盘前/盘中点击会自动对齐到上一个交易日，避免拉到不完整 K 线
+        target_date = get_target_trade_date()
+        target_str = target_date.strftime("%Y-%m-%d")
+        # 拉取窗口：目标交易日往回 7 天，覆盖周末/节假日触发增量逻辑
+        start = (target_date - timedelta(days=7)).strftime("%Y-%m-%d")
+        end = target_str
+
+        # 前置短路：标杆股已是最新 → 跳过整个流程
+        if _is_market_up_to_date(target_str):
+            logger.info(
+                f"市场已是最新（标杆股 {BENCHMARK_STOCK} 本地数据 ≥ {target_str}），跳过本次拉取"
+            )
+            return
+
+        logger.info(f"开始拉取数据：source={source}, 区间 {start} ~ {end}（目标交易日 {target_str}）")
 
         # 1) 拉个股
         fetcher = _create_fetcher(source)
