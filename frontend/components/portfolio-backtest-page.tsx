@@ -329,46 +329,7 @@ function PortfolioBacktestDetail({ runId, onBack }: { runId: string; onBack: () 
       </div>
 
       {/* 交易明细 */}
-      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-zinc-200 mb-3">买卖明细（{closedTrades.length} 笔）</h3>
-        <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-zinc-900">
-              <tr className="text-zinc-500 border-b border-zinc-800">
-                <th className="px-2 py-2 text-left">代码</th>
-                <th className="px-2 py-2 text-left">名称</th>
-                <th className="px-2 py-2 text-left">买入</th>
-                <th className="px-2 py-2 text-left">卖出</th>
-                <th className="px-2 py-2 text-right">买价</th>
-                <th className="px-2 py-2 text-right">卖价</th>
-                <th className="px-2 py-2 text-right">盈亏%</th>
-                <th className="px-2 py-2 text-right">持仓</th>
-                <th className="px-2 py-2 text-left">原因</th>
-              </tr>
-            </thead>
-            <tbody>
-              {closedTrades.slice().reverse().map((t, i) => {
-                const pnl = Number(t.pnl_pct ?? 0);
-                return (
-                  <tr key={i} className="border-b border-zinc-800/50">
-                    <td className="px-2 py-1.5 text-zinc-300">{String(t.symbol ?? "")}</td>
-                    <td className="px-2 py-1.5 text-zinc-400">{String(t.name ?? "")}</td>
-                    <td className="px-2 py-1.5 text-zinc-400">{String(t.buy_date ?? "")}</td>
-                    <td className="px-2 py-1.5 text-zinc-400">{String(t.sell_date ?? "")}</td>
-                    <td className="px-2 py-1.5 text-right text-zinc-400">{Number(t.buy_price ?? 0).toFixed(2)}</td>
-                    <td className="px-2 py-1.5 text-right text-zinc-400">{Number(t.sell_price ?? 0).toFixed(2)}</td>
-                    <td className={`px-2 py-1.5 text-right font-medium ${pnl >= 0 ? "text-red-400" : "text-green-400"}`}>
-                      {pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%
-                    </td>
-                    <td className="px-2 py-1.5 text-right text-zinc-500">{String(t.hold_days ?? "")}</td>
-                    <td className="px-2 py-1.5 text-zinc-500">{String(t.sell_reason ?? "")}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <PortfolioTradesTable trades={closedTrades} />
     </div>
   );
 }
@@ -467,6 +428,112 @@ function EquityChart({ points, initialCapital }: { points: Array<{ date: string;
           </text>
         ))}
       </svg>
+    </div>
+  );
+}
+
+type PortfolioRound = {
+  symbol: string;
+  name: string;
+  buyDate: string;
+  buyPrice: number;
+  totalShares: number;
+  sells: Array<{ date: string; price: number; shares: number; reason: string }>;
+};
+
+function groupPortfolioRounds(trades: Array<Record<string, unknown>>): PortfolioRound[] {
+  const map = new Map<string, PortfolioRound>();
+  const order: string[] = [];
+  for (const t of trades) {
+    const key = `${t.symbol}_${t.buy_date}`;
+    if (!map.has(key)) {
+      order.push(key);
+      map.set(key, {
+        symbol: String(t.symbol ?? ""),
+        name: String(t.name ?? ""),
+        buyDate: String(t.buy_date ?? ""),
+        buyPrice: Number(t.buy_price ?? 0),
+        totalShares: 0,
+        sells: [],
+      });
+    }
+    const round = map.get(key)!;
+    const shares = Number(t.shares ?? 0);
+    round.totalShares += shares;
+    round.sells.push({
+      date: String(t.sell_date ?? ""),
+      price: Number(t.sell_price ?? 0),
+      shares,
+      reason: String(t.sell_reason ?? ""),
+    });
+  }
+  return order.map(k => map.get(k)!);
+}
+
+function daysBetween(a: string, b: string): number {
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+}
+
+function PortfolioTradesTable({ trades }: { trades: Array<Record<string, unknown>> }) {
+  if (!trades.length) return null;
+  const rounds = groupPortfolioRounds(trades);
+  return (
+    <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 overflow-hidden">
+      <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-zinc-200">买卖明细</h3>
+        <span className="text-xs text-zinc-500">共 {rounds.length} 笔</span>
+      </div>
+      <div className="max-h-[500px] overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-zinc-900 text-zinc-500 text-xs sticky top-0">
+            <tr>
+              <th className="text-left px-3 py-2 font-medium w-10">#</th>
+              <th className="text-left px-3 py-2 font-medium">代码</th>
+              <th className="text-left px-3 py-2 font-medium">名称</th>
+              <th className="text-left px-3 py-2 font-medium">时间</th>
+              <th className="text-left px-3 py-2 font-medium w-12">操作</th>
+              <th className="text-right px-3 py-2 font-medium">价格</th>
+              <th className="text-right px-3 py-2 font-medium">数量</th>
+              <th className="text-left px-3 py-2 font-medium">原因</th>
+              <th className="text-right px-3 py-2 font-medium w-24">盈亏/耗时</th>
+            </tr>
+          </thead>
+          {rounds.map((r, ri) => {
+            const rowCount = 1 + r.sells.length;
+            const cost = r.buyPrice * r.totalShares;
+            const revenue = r.sells.reduce((s, t) => s + t.price * t.shares, 0);
+            const pnl = cost > 0 ? ((revenue - cost) / cost) * 100 : null;
+            const lastSellDate = r.sells.length ? r.sells[r.sells.length - 1].date : null;
+            const days = lastSellDate ? daysBetween(r.buyDate, lastSellDate) : null;
+            return (
+              <tbody key={ri} className="border-t-2 border-zinc-800/80">
+                <tr>
+                  <td rowSpan={rowCount} className="px-3 py-2 text-zinc-400 font-mono align-top">{ri + 1}</td>
+                  <td rowSpan={rowCount} className="px-3 py-2 text-zinc-300 align-top">{r.symbol}</td>
+                  <td rowSpan={rowCount} className="px-3 py-2 text-zinc-400 align-top">{r.name}</td>
+                  <td className="px-3 py-2 text-red-400 whitespace-nowrap font-mono">{r.buyDate}</td>
+                  <td className="px-3 py-2"><span className="text-xs px-2 py-0.5 rounded bg-red-500/15 text-red-400 font-bold">B</span></td>
+                  <td className="px-3 py-2 text-right text-red-400 font-mono">{r.buyPrice.toFixed(2)}</td>
+                  <td className="px-3 py-2 text-right text-zinc-400 font-mono">{r.totalShares}</td>
+                  <td className="px-3 py-2 text-zinc-500 text-xs">—</td>
+                  <td rowSpan={rowCount} className={`px-3 py-2 text-right font-mono text-xs align-top leading-5 ${pnl == null ? "text-zinc-500" : pnl >= 0 ? "text-red-400" : "text-green-400"}`}>
+                    {pnl != null ? <>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}%<br/>{days}天</> : <span className="italic">—</span>}
+                  </td>
+                </tr>
+                {r.sells.map((s, si) => (
+                  <tr key={si}>
+                    <td className="px-3 py-2 text-green-400 whitespace-nowrap font-mono">{s.date}</td>
+                    <td className="px-3 py-2"><span className="text-xs px-2 py-0.5 rounded bg-green-500/15 text-green-400 font-bold">S</span></td>
+                    <td className="px-3 py-2 text-right text-green-400 font-mono">{s.price.toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right text-zinc-400 font-mono">{s.shares}</td>
+                    <td className="px-3 py-2 text-green-300/90 text-xs">{s.reason || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            );
+          })}
+        </table>
+      </div>
     </div>
   );
 }
