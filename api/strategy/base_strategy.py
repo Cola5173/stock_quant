@@ -7,14 +7,20 @@ import os
 
 from vnpy_ctastrategy import CtaTemplate, StopOrder, BarGenerator, ArrayManager
 from vnpy.trader.object import BarData, TickData, TradeData, OrderData
-from vnpy.trader.constant import Interval
+from vnpy.trader.constant import Interval, Direction, Offset
 
 from api.indicator.indicators import IndicatorCalculator
 from api.config import settings
 
 
 class BaseStrategy(CtaTemplate):
-    """vnpy CTA 策略基类，内置指标桥接和 A 股交易规则"""
+    """vnpy CTA 策略基类，内置指标桥接和 A 股交易规则。
+
+    撮合规则（自定义，绕过 vnpy 默认撮合）：
+    - 买入：T 日产生信号 → T+1 bar 检查 low ≤ T_close ≤ high；
+      在区间内则按 T_close 成交，否则放弃这次机会。
+    - 卖出：T 日产生信号 → 当日按 bar.close_price 立即成交。
+    """
 
     author = "stock_quant"
 
@@ -29,9 +35,8 @@ class BaseStrategy(CtaTemplate):
         self.trade_reasons: list = []
         self._pending_buy_reason: str = ""
         self._pending_sell_reason: str = ""
-        # 跟踪未撮合订单，避免重复下单时 limit 单堆积（vnpy CtaTemplate 不内置）
-        self._active_buy_orderids: list = []
-        self._active_sell_orderids: list = []
+        # T 日下单 → T+1 bar 撮合（区间含 T_close 才成交）
+        self._pending_buy: dict | None = None
         self._extra_info = self._load_extra_info()
 
     def _load_extra_info(self) -> dict:
@@ -69,7 +74,16 @@ class BaseStrategy(CtaTemplate):
             self.prev_close = bar.close_price
             return
 
+        # 预热阶段（on_init 中 load_bar 回放历史数据）只填 am，不触发交易
+        # 否则 engine.datetime 尚未被 new_bar 设置，自定义撮合会写入脏 datetime
+        if not self.trading:
+            self.prev_close = bar.close_price
+            return
+
         self.indicator = IndicatorCalculator(self.am)
+
+        # 上一根 bar 排队的买单在此 bar 撮合
+        self._cross_pending_buy(bar)
 
         # 涨跌停判断
         limit = self._get_limit_rate()
@@ -87,40 +101,80 @@ class BaseStrategy(CtaTemplate):
                       at_upper_limit: bool, at_lower_limit: bool):
         raise NotImplementedError
 
-    def buy_stock(self, price: float, volume: float):
-        """A 股买入：最小 100 股"""
+    # ------------------------------------------------------------------
+    # 自定义撮合
+    # ------------------------------------------------------------------
+    def _cross_pending_buy(self, bar: BarData):
+        """T 日下买单 → 当前 bar 撮合：low ≤ T_close ≤ high 才按 T_close 成交。"""
+        if self._pending_buy is None:
+            return
+        p = self._pending_buy
+        self._pending_buy = None  # 不论成交与否都清空，不留挂单
+        if bar.low_price <= p["price"] <= bar.high_price:
+            self._execute_trade(Direction.LONG, p["price"], p["volume"], p["reason"])
+
+    def _execute_trade(self, direction: Direction, price: float, volume: int, reason: str):
+        """直接构造 TradeData 注入引擎，绕过 vnpy 默认订单撮合。"""
+        engine = self.cta_engine
+        engine.trade_count += 1
+        offset = Offset.OPEN if direction == Direction.LONG else Offset.CLOSE
+        trade = TradeData(
+            symbol=engine.symbol,
+            exchange=engine.exchange,
+            orderid=str(engine.trade_count),
+            tradeid=str(engine.trade_count),
+            direction=direction,
+            offset=offset,
+            price=price,
+            volume=volume,
+            datetime=engine.datetime,
+            gateway_name=engine.gateway_name,
+        )
+        pos_change = volume if direction == Direction.LONG else -volume
+        self.pos += pos_change
+
+        if direction == Direction.LONG:
+            self._pending_buy_reason = reason
+        else:
+            self._pending_sell_reason = reason
+
+        self.on_trade(trade)
+        engine.trades[trade.vt_tradeid] = trade
+
+    # ------------------------------------------------------------------
+    # 策略对外 API
+    # ------------------------------------------------------------------
+    def buy_stock(self, price: float, volume: float, reason: str = ""):
+        """A 股买入：T 日下单 → T+1 区间含 T_close 才按 T_close 成交。"""
         volume = int(volume // 100) * 100
-        if volume > 0:
-            self.buy(price, volume)
+        if volume <= 0 or price <= 0:
+            return
+        self._pending_buy = {"price": price, "volume": volume, "reason": reason}
 
     def buy_full(self, price: float, reason: str = ""):
-        """A 股满仓买入：用全部可用资金（扣留佣金后）按 100 股取整买入。
-        使用 stop order 保证 next bar 按 max(price, open) 成交，避免跳空高开时 limit 单不撮合。"""
+        """A 股满仓买入：T 日下单 → T+1 区间含 T_close 才按 T_close 成交。"""
         if price <= 0 or self.cash <= 0:
             return
-        for oid in list(self._active_buy_orderids):
-            self.cancel_order(oid)
         rate = float(getattr(self.cta_engine, "rate", 0) or 0)
         affordable = self.cash / (price * (1 + rate))
         volume = int(affordable // 100) * 100
         if volume > 0:
-            self._pending_buy_reason = reason
-            vt_orderids = self.buy(price, volume, stop=True)
-            if vt_orderids:
-                self._active_buy_orderids.extend(vt_orderids)
+            self._pending_buy = {"price": price, "volume": volume, "reason": reason}
 
     def sell_stock(self, price: float, volume: float, reason: str = ""):
-        """A 股卖出。使用 stop order 保证 next bar 按 min(price, open) 成交。"""
+        """A 股卖出：当日按 bar.close_price 立即成交。
+        参数 price 仅作历史兼容，实际成交价始终为当前 bar 的 close_price。"""
         volume = int(volume // 100) * 100
         if volume <= 0:
             return
-        for oid in list(self._active_sell_orderids):
-            self.cancel_order(oid)
-        self._pending_sell_reason = reason
-        vt_orderids = self.sell(price, volume, stop=True)
-        if vt_orderids:
-            self._active_sell_orderids.extend(vt_orderids)
+        bar = getattr(self.cta_engine, "bar", None)
+        if bar is None:
+            return
+        self._execute_trade(Direction.SHORT, bar.close_price, volume, reason)
 
+    # ------------------------------------------------------------------
+    # 引擎回调
+    # ------------------------------------------------------------------
     def on_trade(self, trade: TradeData):
         rate = float(getattr(self.cta_engine, "rate", 0) or 0)
         amount = float(trade.price) * float(trade.volume)
@@ -142,12 +196,8 @@ class BaseStrategy(CtaTemplate):
         })
 
     def on_order(self, order: OrderData):
-        # 订单结束（成交/撤销/拒绝）时从 active 列表移除，便于下次 buy_full/sell_stock 准确判断
-        if not order.is_active():
-            if order.vt_orderid in self._active_buy_orderids:
-                self._active_buy_orderids.remove(order.vt_orderid)
-            if order.vt_orderid in self._active_sell_orderids:
-                self._active_sell_orderids.remove(order.vt_orderid)
+        # 现已不再通过 vnpy 订单系统下单；保留为兼容，实际不会被触发
+        pass
 
     def on_stop_order(self, stop_order: StopOrder):
         pass
