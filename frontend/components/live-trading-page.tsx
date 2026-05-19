@@ -26,6 +26,7 @@ export function LiveTradingPage() {
   const [positions, setPositions] = useState<Array<{ symbol: string; shares: number; cost_price: number; buy_date: string }>>([]);
   const [initialized, setInitialized] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [addModalOpen, setAddModalOpen] = useState(false);
 
   const showToast = (type: "success" | "error", msg: string) => {
     setToast({ type, msg });
@@ -80,8 +81,8 @@ export function LiveTradingPage() {
     });
   };
 
-  const addPosition = () => {
-    setPositions([...positions, { symbol: "", shares: 100, cost_price: 10.0, buy_date: new Date().toISOString().slice(0, 10) }]);
+  const appendPosition = (newPos: { symbol: string; shares: number; cost_price: number; buy_date: string }) => {
+    setPositions([...positions, newPos]);
   };
 
   const removePosition = (index: number) => {
@@ -190,7 +191,7 @@ export function LiveTradingPage() {
         <div className="mb-2">
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs text-zinc-500">持仓列表（可编辑）</label>
-            <button onClick={addPosition} className="text-xs text-blue-400 hover:text-blue-300">+ 添加持仓</button>
+            <button onClick={() => setAddModalOpen(true)} className="text-xs text-blue-400 hover:text-blue-300">+ 添加持仓</button>
           </div>
           {positions.length === 0 ? (
             <p className="text-zinc-500 text-sm py-2">暂无持仓，点击右上角"添加持仓"</p>
@@ -231,31 +232,39 @@ export function LiveTradingPage() {
                       />
                       <button onClick={() => removePosition(i)} className="text-red-400 hover:text-red-300 text-xs">删除</button>
                     </div>
-                    {/* 仓位信息（始终显示） */}
+                    {/* 派生信息（紧贴对应列） */}
                     {(() => {
                       const price = holdingInfo ? Number(holdingInfo.current_close) : p.cost_price;
                       const marketValue = p.shares * price;
                       const positionPct = totalCapital > 0 ? (marketValue / totalCapital) * 100 : 0;
+                      const profitPct = holdingInfo ? Number(holdingInfo.profit_pct) : 0;
                       return (
-                        <div className="text-xs text-zinc-500 px-2 mt-1">
-                          市值 {marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          <span className="ml-2">仓位 <span className={positionPct > 50 ? "text-amber-400" : "text-zinc-300"}>{positionPct.toFixed(1)}%</span></span>
-                          {!holdingInfo && <span className="ml-2 text-zinc-600">（按成本价估算）</span>}
+                        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 text-xs text-zinc-500 px-2 mt-1">
+                          {/* 代码列下：股票名 + 仓位 */}
+                          <span>
+                            {holdingInfo && <span className="text-zinc-400">{String(holdingInfo.name ?? "")}</span>}
+                            <span className="ml-1.5">仓位 <span className={positionPct > 50 ? "text-amber-400" : "text-zinc-300"}>{positionPct.toFixed(1)}%</span></span>
+                          </span>
+                          {/* 股数列下：市值 */}
+                          <span>市值 {marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                          {/* 成本价列下：浮盈 */}
+                          <span className={profitPct >= 0 ? "text-green-400" : "text-red-400"}>
+                            {holdingInfo ? `浮盈 ${profitPct >= 0 ? "+" : ""}${profitPct.toFixed(2)}%` : "—"}
+                          </span>
+                          {/* 买入日期列下：持X天 / 现价 + 决策日期 */}
+                          <span>
+                            {holdingInfo ? (
+                              <>
+                                持{String(holdingInfo.hold_days)}天 · 现价 {Number(holdingInfo.current_close).toFixed(2)}
+                                {decisionDate && <span className="text-zinc-600">@{decisionDate}</span>}
+                              </>
+                            ) : "—"}
+                          </span>
+                          {/* 删除列下：档位 */}
+                          <span>{holdingInfo ? `档${String(holdingInfo.tp_level_done)}` : ""}</span>
                         </div>
                       );
                     })()}
-                    {/* 决策派生信息 */}
-                    {holdingInfo && (
-                      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 text-xs text-zinc-500 px-2 mt-1">
-                        <span>{String(holdingInfo.name ?? "")}</span>
-                        <span>持{String(holdingInfo.hold_days)}天</span>
-                        <span>现价 {Number(holdingInfo.current_close).toFixed(2)}</span>
-                        <span className={Number(holdingInfo.profit_pct) >= 0 ? "text-green-400" : "text-red-400"}>
-                          浮盈 {Number(holdingInfo.profit_pct) >= 0 ? "+" : ""}{Number(holdingInfo.profit_pct).toFixed(2)}%
-                        </span>
-                        <span>档位 {String(holdingInfo.tp_level_done)}</span>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -316,6 +325,18 @@ export function LiveTradingPage() {
         }`}>
           {toast.msg}
         </div>
+      )}
+
+      {/* 添加持仓 Modal */}
+      {addModalOpen && (
+        <AddPositionModal
+          onClose={() => setAddModalOpen(false)}
+          onSubmit={(p) => {
+            appendPosition(p);
+            setAddModalOpen(false);
+            showToast("success", `已添加 ${p.symbol}，记得点"保存持仓"持久化`);
+          }}
+        />
       )}
     </div>
   );
@@ -397,6 +418,86 @@ function SymbolSearchInput({ value, onChange }: { value: string; onChange: (code
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// PLACEHOLDER_ADD_MODAL
+function AddPositionModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (p: { symbol: string; shares: number; cost_price: number; buy_date: string }) => void;
+}) {
+  const [symbol, setSymbol] = useState("");
+  const [shares, setShares] = useState(100);
+  const [costPrice, setCostPrice] = useState(10);
+  const [buyDate, setBuyDate] = useState(new Date().toISOString().slice(0, 10));
+  const [error, setError] = useState("");
+
+  const handleSubmit = () => {
+    if (!symbol || !/^\d{6}$/.test(symbol)) {
+      setError("代码必须是 6 位数字（请从下拉中选择）");
+      return;
+    }
+    if (shares <= 0) {
+      setError("股数必须 > 0");
+      return;
+    }
+    if (costPrice <= 0) {
+      setError("成本价必须 > 0");
+      return;
+    }
+    if (!buyDate) {
+      setError("请选择买入日期");
+      return;
+    }
+    onSubmit({ symbol, shares, cost_price: costPrice, buy_date: buyDate });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-semibold text-zinc-200 mb-4">添加持仓</h2>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-zinc-500 mb-1.5 block">代码</label>
+            <SymbolSearchInput value={symbol} onChange={setSymbol} />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 mb-1.5 block">股数</label>
+            <input type="number" value={shares} onChange={(e) => setShares(Number(e.target.value))}
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 mb-1.5 block">成本价</label>
+            <input type="number" step="0.01" value={costPrice} onChange={(e) => setCostPrice(Number(e.target.value))}
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 mb-1.5 block">买入日期</label>
+            <input type="date" value={buyDate} onChange={(e) => setBuyDate(e.target.value)}
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500" />
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-3 p-2 bg-red-950/50 border border-red-900 rounded-md text-red-300 text-xs">
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-2 justify-end mt-4">
+          <button onClick={onClose} className="px-4 py-2 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm">
+            取消
+          </button>
+          <button onClick={handleSubmit} className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-sm">
+            添加
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
