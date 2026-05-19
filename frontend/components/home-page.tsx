@@ -1,6 +1,6 @@
 "use client";
 
-import { LineChart, Search, Library } from "lucide-react";
+import { LineChart, Search } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { NavKey } from "@/components/sidebar";
@@ -23,13 +23,6 @@ export function HomePage({ onNavigate }: { onNavigate: (k: NavKey) => void }) {
       action: () => onNavigate("screening"),
       cta: "进入选股",
       disabled: true,
-    },
-    {
-      icon: Library,
-      title: "策略库",
-      desc: "集中管理所有可用策略，复用配置与参数，便于横向对比。",
-      action: () => onNavigate("library"),
-      cta: "查看策略",
     },
   ];
 

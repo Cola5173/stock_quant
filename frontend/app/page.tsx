@@ -9,7 +9,6 @@ import { BacktestPanel, type BacktestParams } from "@/components/backtest-panel"
 import { KlineChart } from "@/components/kline-chart";
 import { EquityChart } from "@/components/equity-chart";
 import { StatsCards, TradesTable } from "@/components/results";
-import { StrategyLibrary } from "@/components/strategy-library";
 import { HomePage as HomePanel } from "@/components/home-page";
 import { StockInfoPanel } from "@/components/stock-info-panel";
 import { ChartToolbar, aggregateToWeekly, type Granularity, type TimeRange } from "@/components/chart-toolbar";
@@ -215,13 +214,6 @@ export default function HomePage() {
               <div className="overflow-y-auto h-full">
                 <StockInfoPanel code={params?.code ?? ""} />
               </div>
-            </div>
-          )}
-
-          {/* 策略库 */}
-          {navActive === "library" && (
-            <div className="max-w-3xl mx-auto h-full">
-              <StrategyLibrary />
             </div>
           )}
 
