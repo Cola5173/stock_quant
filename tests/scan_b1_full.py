@@ -180,6 +180,25 @@ def check_one(args: tuple):
             if rally_pct > B1Strategy.burst_exhaustion_pct and pullback_pct > B1Strategy.burst_exhaustion_pullback_pct:
                 continue
 
+        # 新增：异动后出现"跳空后出货"（≥3% 跳空且 3 天内回落 ≥3%）
+        gap_disqualify = False
+        for jj in range(ci + 3, n_total):
+            if jj == 0:
+                continue
+            gap_pct = (opens[jj] / closes[jj - 1] - 1) * 100 if closes[jj - 1] > 0 else 0
+            if gap_pct >= 3.0:
+                # 检查跳空后 3 天内是否有回落
+                gap_high = opens[jj]
+                for kk in range(jj, min(jj + 3, n_total)):
+                    drop_from_gap = (gap_high - closes[kk]) / gap_high * 100
+                    if drop_from_gap >= 3.0:
+                        gap_disqualify = True
+                        break
+                if gap_disqualify:
+                    break
+        if gap_disqualify:
+            continue
+
         big_drop = False
         for jj in range(ci + 1, n_total - 1):
             o, c = opens[jj], closes[jj]
