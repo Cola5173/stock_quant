@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Edit, RefreshCw, ChevronRight } from "lucide-react";
+import { RefreshCw, ChevronRight } from "lucide-react";
 import type { StockItem } from "@/lib/types";
 
 const ACTION_COLORS: Record<string, string> = {
@@ -44,11 +44,11 @@ export function LiveTradingPage() {
 function StrategySelector({ onSelect }: { onSelect: (key: string) => void }) {
   const { data: strategies = [] } = useQuery({ queryKey: ["strategies"], queryFn: api.strategies });
   return (
-    <div className="h-full flex items-center justify-center">
-      <div className="w-full max-w-md space-y-4">
-        <h2 className="text-lg font-semibold text-zinc-200 text-center">选择策略</h2>
-        <p className="text-xs text-zinc-500 text-center">模拟盘将根据所选策略生成明日建议</p>
-        <div className="space-y-2">
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-2xl mx-auto pt-20 px-6 space-y-4">
+        <h2 className="text-2xl font-bold text-zinc-200 text-center">选择策略</h2>
+        <p className="text-sm text-zinc-500 text-center">模拟盘将根据所选策略生成明日建议</p>
+        <div className="space-y-2 pt-4">
           {strategies.map((s) => (
             <button
               key={s.key}
@@ -81,6 +81,9 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
     setTimeout(() => setToast(null), 3000);
   };
 
+  const { data: strategies = [] } = useQuery({ queryKey: ["strategies"], queryFn: api.strategies });
+  const strategyName = strategies.find((s) => s.key === strategy)?.name ?? strategy;
+
   const { data, isPending, isError } = useQuery({
     queryKey: ["advisor-latest"],
     queryFn: () => api.advisorLatest(),
@@ -108,7 +111,7 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
     mutationFn: (data: Record<string, unknown>) => api.updatePositions(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["advisor-latest"] });
-      showToast("success", "持仓保存成功");
+      // 自动保存：不弹 toast，避免每次编辑都打扰
     },
     onError: (err: Error) => {
       showToast("error", `保存失败：${err.message}`);
@@ -122,12 +125,18 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
     },
   });
 
-  const handleSave = () => {
-    updateMutation.mutate({
-      total_capital: totalCapital,
-      positions: positions.filter((p) => p.symbol && p.shares > 0 && p.cost_price > 0 && p.buy_date),
-    });
-  };
+  // 自动保存：positions / totalCapital 变化后 500ms 触发；初始化阶段不触发
+  useEffect(() => {
+    if (!initialized) return;
+    const timer = setTimeout(() => {
+      updateMutation.mutate({
+        total_capital: totalCapital,
+        positions: positions.filter((p) => p.symbol && p.shares > 0 && p.cost_price > 0 && p.buy_date),
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions, totalCapital, initialized]);
 
   const appendPosition = (newPos: { symbol: string; shares: number; cost_price: number; buy_date: string }) => {
     setPositions([...positions, newPos]);
@@ -171,29 +180,11 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
   return (
     <div className="h-full overflow-y-auto space-y-4">
       {/* 策略标识 + 切换 */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-zinc-500">策略：<span className="text-zinc-300">{strategy}</span></span>
-        <button onClick={onChangeStrategy} className="text-xs text-blue-400 hover:text-blue-300">切换策略</button>
-      </div>
-
-      {/* 大盘状态 */}
-      <div className="flex gap-3 flex-wrap">
-        <StatusBadge
-          label="大盘"
-          value={market.allow_buy ? "允许买入" : "禁止买入"}
-          positive={!!market.allow_buy}
-        />
-        <StatusBadge
-          label="强弱"
-          value={market.is_strong ? "强势" : "弱势"}
-          positive={!!market.is_strong}
-        />
-        {Boolean(cooldown.active) && (
-          <StatusBadge label="冷却" value={`剩余 ${String(cooldown.remaining_days)} 天`} positive={false} />
-        )}
-        {decisionDate && (
-          <span className="text-xs text-zinc-500 self-center ml-auto">决策日期：{decisionDate}</span>
-        )}
+      <div className="flex items-center gap-3">
+        <button onClick={onChangeStrategy} className="text-sm font-bold text-blue-400 hover:text-blue-300">‹ 切换策略</button>
+        <span className="px-4 py-1.5 text-sm font-bold rounded-full bg-red-600 text-white">
+          {strategyName}
+        </span>
       </div>
 
       {/* 持仓编辑 */}
@@ -202,20 +193,12 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
         actions={
           <div className="flex gap-2">
             <button
-              onClick={handleSave}
-              disabled={updateMutation.isPending}
-              className="px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-700 disabled:text-zinc-500 text-zinc-300 text-xs flex items-center gap-1.5"
-            >
-              <Edit className="w-3.5 h-3.5" />
-              {updateMutation.isPending ? "保存中..." : "保存持仓"}
-            </button>
-            <button
               onClick={() => recalculate.mutate()}
               disabled={recalculate.isPending}
               className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-xs flex items-center gap-1.5"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${recalculate.isPending ? "animate-spin" : ""}`} />
-              {recalculate.isPending ? "计算中..." : "重新计算决策"}
+              {recalculate.isPending ? "计算中..." : "计算决策"}
             </button>
           </div>
         }
@@ -353,6 +336,26 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
           </div>
         </Section>
       )}
+
+      {/* 大盘状态（放在明日建议上方，便于与建议对照） */}
+      <div className="flex gap-3 flex-wrap">
+        <StatusBadge
+          label="大盘"
+          value={market.allow_buy ? "允许买入" : "禁止买入"}
+          positive={!!market.allow_buy}
+        />
+        <StatusBadge
+          label="强弱"
+          value={market.is_strong ? "强势" : "弱势"}
+          positive={!!market.is_strong}
+        />
+        {Boolean(cooldown.active) && (
+          <StatusBadge label="冷却" value={`剩余 ${String(cooldown.remaining_days)} 天`} positive={false} />
+        )}
+        {decisionDate && (
+          <span className="text-xs text-zinc-500 self-center ml-auto">决策日期：{decisionDate}</span>
+        )}
+      </div>
 
       {/* 明日建议（仅在有最新数据时显示） */}
       {decision && (
