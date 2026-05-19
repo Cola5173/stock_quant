@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, Play, Loader2 } from "lucide-react";
+import { Download, Play, Loader2, Calendar } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { SelectedDetail } from "@/lib/types";
@@ -182,6 +182,10 @@ function RunScanModal({
 }) {
   const [strategy, setStrategy] = useState(defaultStrategy);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [calOpen, setCalOpen] = useState(false);
+  const parsed = new Date(date);
+  const [calYear, setCalYear] = useState(parsed.getFullYear());
+  const [calMonth, setCalMonth] = useState(parsed.getMonth());
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
@@ -200,14 +204,26 @@ function RunScanModal({
               ))}
             </select>
           </div>
-          <div>
+          <div className="relative">
             <label className="text-xs text-zinc-500 mb-1.5 block">选股日期</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
-            />
+            <button
+              onClick={() => setCalOpen(!calOpen)}
+              className="w-full flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 hover:border-zinc-600"
+            >
+              <span>{date}</span>
+              <Calendar className="w-4 h-4 text-zinc-500" />
+            </button>
+            {calOpen && (
+              <div className="absolute top-full mt-1 left-0 z-50 bg-zinc-900 border border-zinc-700 rounded-lg p-3 shadow-xl">
+                <SingleCalendar
+                  year={calYear} month={calMonth}
+                  selected={date}
+                  onSelect={(d) => { setDate(d); setCalOpen(false); }}
+                  onPrev={() => { if (calMonth === 0) { setCalYear(calYear - 1); setCalMonth(11); } else setCalMonth(calMonth - 1); }}
+                  onNext={() => { if (calMonth === 11) { setCalYear(calYear + 1); setCalMonth(0); } else setCalMonth(calMonth + 1); }}
+                />
+              </div>
+            )}
           </div>
         </div>
         <div className="flex gap-2 justify-end mt-5">
@@ -223,6 +239,53 @@ function RunScanModal({
             {isPending ? "扫描中..." : "开始选股"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
+function pad(n: number) { return n < 10 ? `0${n}` : `${n}`; }
+function toStr(y: number, m: number, d: number) { return `${y}-${pad(m + 1)}-${pad(d)}`; }
+
+function SingleCalendar({ year, month, selected, onSelect, onPrev, onNext }: {
+  year: number; month: number; selected: string;
+  onSelect: (date: string) => void;
+  onPrev: () => void; onNext: () => void;
+}) {
+  const days = new Date(year, month + 1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay();
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= days; d++) cells.push(d);
+
+  return (
+    <div className="w-[240px]">
+      <div className="flex items-center justify-between mb-2">
+        <button onClick={onPrev} className="text-zinc-400 hover:text-zinc-200 px-2">&lsaquo;</button>
+        <span className="text-xs text-zinc-200 font-medium">{year}年{month + 1}月</span>
+        <button onClick={onNext} className="text-zinc-400 hover:text-zinc-200 px-2">&rsaquo;</button>
+      </div>
+      <div className="grid grid-cols-7 text-center mb-1">
+        {WEEKDAYS.map((w) => <span key={w} className="text-[10px] text-zinc-500 py-0.5">{w}</span>)}
+      </div>
+      <div className="grid grid-cols-7 text-center">
+        {cells.map((d, i) => {
+          if (d === null) return <span key={`e${i}`} />;
+          const dateStr = toStr(year, month, d);
+          const isSelected = dateStr === selected;
+          return (
+            <button
+              key={d}
+              onClick={() => onSelect(dateStr)}
+              className={`py-1 text-xs rounded transition-colors ${
+                isSelected ? "bg-blue-600 text-white" : "text-zinc-300 hover:bg-zinc-700"
+              }`}
+            >
+              {d}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
