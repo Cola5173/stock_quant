@@ -109,6 +109,16 @@ export function LiveTradingPage() {
   const warnings = (decision?.warnings ?? []) as string[];
   const decisionDate = decision?.date as string | undefined;
 
+  // 计算市值与仓位
+  const totalMarketValue = positions.reduce((sum, p) => {
+    const holdingInfo = holdings.find((h) => h.symbol === p.symbol);
+    const price = holdingInfo
+      ? Number(holdingInfo.current_close)
+      : p.cost_price;
+    return sum + p.shares * price;
+  }, 0);
+  const totalPositionPct = totalCapital > 0 ? (totalMarketValue / totalCapital) * 100 : 0;
+
   return (
     <div className="h-full overflow-y-auto space-y-4">
       {/* 大盘状态 */}
@@ -157,7 +167,17 @@ export function LiveTradingPage() {
       >
         {/* 总资金 */}
         <div className="mb-4">
-          <label className="text-xs text-zinc-500 mb-1.5 block">总资金</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs text-zinc-500">总资金</label>
+            <span className="text-xs text-zinc-500">
+              总仓位 <span className={`font-medium ${totalPositionPct > 90 ? "text-red-400" : totalPositionPct > 50 ? "text-amber-400" : "text-zinc-300"}`}>
+                {totalPositionPct.toFixed(1)}%
+              </span>
+              <span className="text-zinc-600 ml-2">
+                市值 {totalMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} / 现金 {(totalCapital - totalMarketValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </span>
+            </span>
+          </div>
           <input
             type="number"
             value={totalCapital}
@@ -211,6 +231,19 @@ export function LiveTradingPage() {
                       />
                       <button onClick={() => removePosition(i)} className="text-red-400 hover:text-red-300 text-xs">删除</button>
                     </div>
+                    {/* 仓位信息（始终显示） */}
+                    {(() => {
+                      const price = holdingInfo ? Number(holdingInfo.current_close) : p.cost_price;
+                      const marketValue = p.shares * price;
+                      const positionPct = totalCapital > 0 ? (marketValue / totalCapital) * 100 : 0;
+                      return (
+                        <div className="text-xs text-zinc-500 px-2 mt-1">
+                          市值 {marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          <span className="ml-2">仓位 <span className={positionPct > 50 ? "text-amber-400" : "text-zinc-300"}>{positionPct.toFixed(1)}%</span></span>
+                          {!holdingInfo && <span className="ml-2 text-zinc-600">（按成本价估算）</span>}
+                        </div>
+                      );
+                    })()}
                     {/* 决策派生信息 */}
                     {holdingInfo && (
                       <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 text-xs text-zinc-500 px-2 mt-1">
