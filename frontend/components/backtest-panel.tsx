@@ -41,7 +41,7 @@ export function BacktestPanel({
   const { data: stocks = [] } = useQuery({ queryKey: ["stocks"], queryFn: api.stocks });
   const { data: strategies = [] } = useQuery({ queryKey: ["strategies"], queryFn: api.strategies });
 
-  const [strategy, setStrategy] = useState("b1");
+  const [strategy, setStrategy] = useState("");
   const [stockSearch, setStockSearch] = useState("");
   const [stockOpen, setStockOpen] = useState(false);
   const [selectedStock, setSelectedStock] = useState<StockItem | null>(null);
@@ -49,6 +49,15 @@ export function BacktestPanel({
   const [capitalW, setCapitalW] = useState(10);
   const [customStart, setCustomStart] = useState(yearsAgo(3));
   const [customEnd, setCustomEnd] = useState(today);
+
+  // strategies 加载后，自动选中第一个有效 key（避免硬编码默认值跟后端不同步）
+  useEffect(() => {
+    if (!strategy && strategies.length > 0) {
+      setStrategy(strategies[0].key);
+    } else if (strategy && strategies.length > 0 && !strategies.some(s => s.key === strategy)) {
+      setStrategy(strategies[0].key);
+    }
+  }, [strategies, strategy]);
 
   const filteredStocks = useMemo(() => {
     if (!stockSearch) return [];
@@ -74,7 +83,7 @@ export function BacktestPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [strategy, code, start, end, capitalW]);
 
-  const canSubmit = !!selectedStock && !isPending;
+  const canSubmit = !!selectedStock && !!strategy && !isPending;
 
   return (
     <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4 space-y-5">
