@@ -9,8 +9,12 @@ Fetcher 数据下载测试
 """
 import sys
 import os
+import logging
 # 项目根（test_fetcher.py 在 api/fetcher/，向上两级）
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+# 默认显示 WARNING 及以上日志，便于看到网络重试错误
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s [%(name)s] %(message)s")
 
 import argparse
 from datetime import datetime, timedelta

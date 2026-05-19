@@ -176,24 +176,40 @@ class AkShareDataFetcher(DataFetcher):
         if (end_dt - start_dt).days > 365 * 2:
             return self._fetch_single_stock_chunked(symbol, start_date, end_date)
 
-        try:
-            with _no_proxy():
-                df = self.ak.stock_zh_a_hist(
-                    symbol=symbol,
-                    period="daily",
-                    start_date=start_date,
-                    end_date=end_date,
-                    adjust="qfq"
-                )
+        import requests
+        max_retries = 3
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                with _no_proxy():
+                    df = self.ak.stock_zh_a_hist(
+                        symbol=symbol,
+                        period="daily",
+                        start_date=start_date,
+                        end_date=end_date,
+                        adjust="qfq"
+                    )
 
-            if df is None or df.empty:
+                if df is None or df.empty:
+                    return None
+
+                return self._normalize_hist_df(df, symbol)
+
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.Timeout,
+                    requests.exceptions.ProxyError,
+                    ConnectionResetError) as e:
+                last_err = e
+                wait = 2 ** attempt
+                logger.warning(f"获取 {symbol} 网络失败（{attempt + 1}/{max_retries}），{wait}s 后重试: {e}")
+                time.sleep(wait)
+            except Exception as e:
+                logger.debug(f"获取 {symbol} 数据失败: {e}")
                 return None
 
-            return self._normalize_hist_df(df, symbol)
-
-        except Exception as e:
-            logger.debug(f"获取 {symbol} 数据失败: {e}")
-            return None
+        logger.warning(f"获取 {symbol} 重试 {max_retries} 次仍失败: {last_err}")
+        return None
 
     def _fetch_single_stock_chunked(self, symbol: str, start_date: str, end_date: str) -> Optional[pd.DataFrame]:
         """分段获取超长日期范围的数据（每段最多2年）"""
