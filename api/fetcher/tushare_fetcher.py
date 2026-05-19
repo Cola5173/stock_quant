@@ -111,18 +111,29 @@ class TushareDataFetcher(DataFetcher):
             return []
 
     def fetch(self, start_date: Optional[str] = None,
-              end_date: Optional[str] = None) -> None:
-        """批量下载股票日线数据"""
+              end_date: Optional[str] = None,
+              symbols: Optional[list] = None) -> dict:
+        """批量下载股票日线数据。
+
+        :param start_date: 开始日期 YYYY-MM-DD
+        :param end_date: 结束日期 YYYY-MM-DD
+        :param symbols: 指定股票列表（None 时拉取全市场）。用于失败重试场景。
+        :return: {"success": int, "failed": int, "fail_log_path": Optional[str], "failures": list}
+        """
         from tqdm import tqdm
 
         os.makedirs(settings.DATA_DIR, exist_ok=True)
 
-        print("step 1.1: ----> 获取所有 A 股股票列表...")
-        stock_codes = self._get_all_stock_codes()
-        if not stock_codes:
-            print("未获取到股票列表（请先运行 stock_list 获取，或写入 stock_code.csv）")
-            return
-        print(f"共 {len(stock_codes)} 只股票")
+        if symbols:
+            stock_codes = symbols
+            print(f"step 1.1: ----> 重试模式：使用传入的 {len(stock_codes)} 只股票")
+        else:
+            print("step 1.1: ----> 获取所有 A 股股票列表...")
+            stock_codes = self._get_all_stock_codes()
+            if not stock_codes:
+                print("未获取到股票列表（请先运行 stock_list 获取，或写入 stock_code.csv）")
+                return {"success": 0, "failed": 0, "fail_log_path": None, "failures": []}
+            print(f"共 {len(stock_codes)} 只股票")
 
         ts_start = start_date.replace("-", "") if start_date else "20240101"
         ts_end = end_date.replace("-", "") if end_date else datetime.now().strftime("%Y%m%d")
@@ -130,13 +141,13 @@ class TushareDataFetcher(DataFetcher):
         print(f"step 1.2: ----> 开始下载 K 线数据 [{start_date} ~ {end_date}]...")
         success_count = 0
         failed_count = 0
+        failures: list = []  # 记录失败明细 [{symbol, reason, range}]
 
         pbar = tqdm(sorted(stock_codes, key=_normalize_stock_code), desc="下载数据")
         for stock_code in pbar:
+            symbol = _normalize_stock_code(stock_code)
+            pbar.set_description(f"download {symbol} K line data")
             try:
-                symbol = _normalize_stock_code(stock_code)
-                pbar.set_description(f"download {symbol} K line data")
-
                 ts_start_ts = pd.to_datetime(ts_start)
                 ts_end_ts = pd.to_datetime(ts_end)
                 existing_df = self._load_stock_data(symbol)
@@ -162,24 +173,72 @@ class TushareDataFetcher(DataFetcher):
                     continue
 
                 fetched = False
+                empty_ranges: list = []
                 for r_start, r_end in ranges:
                     df = self._fetch_single_stock(symbol, r_start, r_end)
                     if df is not None and not df.empty:
                         self._save_stock_data(symbol, df)
                         fetched = True
+                    else:
+                        empty_ranges.append(f"{r_start}-{r_end}")
                     time.sleep(REQUEST_INTERVAL)
 
                 if fetched:
                     success_count += 1
+                else:
+                    # 所有区间都返回空（可能停牌/退市/网络问题）→ 记入失败
+                    failed_count += 1
+                    failures.append({
+                        "symbol": symbol,
+                        "reason": "no_data_returned",
+                        "ranges": empty_ranges,
+                    })
 
             except Exception as e:
                 failed_count += 1
+                failures.append({
+                    "symbol": symbol,
+                    "reason": f"{type(e).__name__}: {e}",
+                    "ranges": [f"{ts_start}-{ts_end}"],
+                })
                 logger.debug(f"下载 {stock_code} 失败: {e}")
                 continue
 
         print(f"step 1.3: ----> 下载完成！")
         print(f"  - 成功: {success_count} 只股票")
         print(f"  - 失败: {failed_count} 只股票")
+
+        fail_log_path = None
+        if failures:
+            fail_log_path = self._dump_failures(failures, start_date, end_date)
+            print(f"  - 失败明细: {fail_log_path}")
+
+        return {
+            "success": success_count,
+            "failed": failed_count,
+            "fail_log_path": fail_log_path,
+            "failures": failures,
+        }
+
+    @staticmethod
+    def _dump_failures(failures: list, start_date: Optional[str],
+                       end_date: Optional[str]) -> str:
+        """将失败明细写入 output/download_k_fail/{yyyy-mm-dd-HHMMSS}.json"""
+        import json
+        fail_dir = os.path.join(settings.OUTPUT_DIR, "download_k_fail")
+        os.makedirs(fail_dir, exist_ok=True)
+        fname = datetime.now().strftime("%Y-%m-%d-%H%M%S") + ".json"
+        path = os.path.join(fail_dir, fname)
+        payload = {
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "start_date": start_date,
+            "end_date": end_date,
+            "count": len(failures),
+            "failures": failures,
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        return path
 
     def _fetch_single_stock(self, symbol: str, start_date: str,
                             end_date: str) -> Optional[pd.DataFrame]:
