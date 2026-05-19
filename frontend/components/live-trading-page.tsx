@@ -197,18 +197,25 @@ export function LiveTradingPage() {
             <p className="text-zinc-500 text-sm py-2">暂无持仓，点击右上角"添加持仓"</p>
           ) : (
             <div className="space-y-2">
-              <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 text-xs text-zinc-500 px-2">
-                <span>代码</span><span>股数</span><span>成本价</span><span>买入日期</span><span></span>
+              <div className="grid grid-cols-[1.2fr_0.6fr_0.8fr_0.8fr_1fr_1.4fr_50px] gap-2 text-xs text-zinc-500 px-2">
+                <span>代码</span><span>仓位</span><span>股数</span><span>成本价</span><span>买入日期</span><span>状态</span><span></span>
               </div>
               {positions.map((p, i) => {
                 const holdingInfo = holdings.find((h) => h.symbol === p.symbol);
+                const price = holdingInfo ? Number(holdingInfo.current_close) : p.cost_price;
+                const marketValue = p.shares * price;
+                const positionPct = totalCapital > 0 ? (marketValue / totalCapital) * 100 : 0;
                 return (
                   <div key={i}>
-                    <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 items-center">
+                    <div className="grid grid-cols-[1.2fr_0.6fr_0.8fr_0.8fr_1fr_1.4fr_50px] gap-2 items-center">
                       <SymbolSearchInput
                         value={p.symbol}
                         onChange={(code) => updatePosition(i, "symbol", code)}
                       />
+                      {/* 仓位列（只读，表格样式） */}
+                      <div className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-center">
+                        <span className={positionPct > 50 ? "text-amber-400" : "text-zinc-300"}>{positionPct.toFixed(1)}%</span>
+                      </div>
                       <input
                         type="number"
                         placeholder="股数"
@@ -230,41 +237,17 @@ export function LiveTradingPage() {
                         onChange={(e) => updatePosition(i, "buy_date", e.target.value)}
                         className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
                       />
+                      {/* 状态列（只读，表格样式） */}
+                      <div className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-400">
+                        {holdingInfo ? (
+                          <>
+                            持{String(holdingInfo.hold_days)}天 · {Number(holdingInfo.current_close).toFixed(2)}
+                            {decisionDate && <span className="text-zinc-600">@{decisionDate}</span>}
+                          </>
+                        ) : "—"}
+                      </div>
                       <button onClick={() => removePosition(i)} className="text-red-400 hover:text-red-300 text-xs">删除</button>
                     </div>
-                    {/* 派生信息（紧贴对应列） */}
-                    {(() => {
-                      const price = holdingInfo ? Number(holdingInfo.current_close) : p.cost_price;
-                      const marketValue = p.shares * price;
-                      const positionPct = totalCapital > 0 ? (marketValue / totalCapital) * 100 : 0;
-                      const profitPct = holdingInfo ? Number(holdingInfo.profit_pct) : 0;
-                      return (
-                        <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 text-xs text-zinc-500 px-2 mt-1">
-                          {/* 代码列下：股票名 + 仓位 */}
-                          <span>
-                            {holdingInfo && <span className="text-zinc-400">{String(holdingInfo.name ?? "")}</span>}
-                            <span className="ml-1.5">仓位 <span className={positionPct > 50 ? "text-amber-400" : "text-zinc-300"}>{positionPct.toFixed(1)}%</span></span>
-                          </span>
-                          {/* 股数列下：市值 */}
-                          <span>市值 {marketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                          {/* 成本价列下：浮盈 */}
-                          <span className={profitPct >= 0 ? "text-green-400" : "text-red-400"}>
-                            {holdingInfo ? `浮盈 ${profitPct >= 0 ? "+" : ""}${profitPct.toFixed(2)}%` : "—"}
-                          </span>
-                          {/* 买入日期列下：持X天 / 现价 + 决策日期 */}
-                          <span>
-                            {holdingInfo ? (
-                              <>
-                                持{String(holdingInfo.hold_days)}天 · 现价 {Number(holdingInfo.current_close).toFixed(2)}
-                                {decisionDate && <span className="text-zinc-600">@{decisionDate}</span>}
-                              </>
-                            ) : "—"}
-                          </span>
-                          {/* 删除列下：档位 */}
-                          <span>{holdingInfo ? `档${String(holdingInfo.tp_level_done)}` : ""}</span>
-                        </div>
-                      );
-                    })()}
                   </div>
                 );
               })}
