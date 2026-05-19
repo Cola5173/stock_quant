@@ -41,9 +41,13 @@ export const api = {
   selectedDetail: (strategy: string, date: string) =>
     http<SelectedDetail>(`/api/selected/${strategy}/${date}`),
   runScan: (strategy: string, date?: string) =>
-    http<{ status: string; date: string; strategy: string; candidates_count: number }>(
+    http<{ status: string; task_id: string; strategy: string; date: string }>(
       `/api/selected/${strategy}/run${date ? `?date=${date}` : ""}`,
       { method: "POST" }
+    ),
+  scanTaskStatus: (taskId: string) =>
+    http<{ status: string; strategy?: string; date?: string; candidates_count?: number; error?: string }>(
+      `/api/selected/task/${taskId}`
     ),
   advisorLatest: () =>
     http<{ positions: Record<string, unknown>; decision: Record<string, unknown> | null }>("/api/advisor/latest"),

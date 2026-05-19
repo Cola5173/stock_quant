@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Play, Loader2, Calendar } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,9 @@ export function ScreeningPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [showRunModal, setShowRunModal] = useState(false);
+  const [runningTask, setRunningTask] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: strategies = [] } = useQuery({ queryKey: ["strategies"], queryFn: api.strategies });
 
@@ -26,20 +28,37 @@ export function ScreeningPage() {
     queryFn: () => api.selectedRecords(activeStrategy),
   });
 
-  const runScan = useMutation({
-    mutationFn: (params: { strategy: string; date?: string }) =>
-      api.runScan(params.strategy, params.date),
-    onSuccess: (data) => {
-      showToast("success", `选股完成：${data.date} 命中 ${data.candidates_count} 只`);
-      setActiveStrategy(data.strategy);
-      queryClient.invalidateQueries({ queryKey: ["selected-records", data.strategy] });
-      setSelectedDate(data.date);
+  // 清理轮询
+  useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+
+  const handleSubmitScan = async (strategy: string, date?: string) => {
+    try {
+      const res = await api.runScan(strategy, date);
       setShowRunModal(false);
-    },
-    onError: (err: Error) => {
-      showToast("error", `选股失败：${err.message}`);
-    },
-  });
+      setRunningTask(res.task_id);
+      setActiveStrategy(strategy);
+
+      // 轮询任务状态
+      pollRef.current = setInterval(async () => {
+        try {
+          const task = await api.scanTaskStatus(res.task_id);
+          if (task.status === "done") {
+            if (pollRef.current) clearInterval(pollRef.current);
+            setRunningTask(null);
+            showToast("success", `选股完成：${task.date} 命中 ${task.candidates_count} 只`);
+            queryClient.invalidateQueries({ queryKey: ["selected-records", strategy] });
+            setSelectedDate(task.date ?? null);
+          } else if (task.status === "error") {
+            if (pollRef.current) clearInterval(pollRef.current);
+            setRunningTask(null);
+            showToast("error", `选股失败：${task.error}`);
+          }
+        } catch { /* ignore poll errors */ }
+      }, 2000);
+    } catch (err: unknown) {
+      showToast("error", `提交失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   const firstDate = records.length > 0 ? records[0].date : null;
   const currentDate = selectedDate ?? firstDate;
@@ -70,10 +89,11 @@ export function ScreeningPage() {
         ))}
         <button
           onClick={() => setShowRunModal(true)}
-          className="ml-auto flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+          disabled={!!runningTask}
+          className="ml-auto flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
         >
-          <Play className="w-4 h-4" />
-          执行选股
+          {runningTask ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          {runningTask ? "扫描中..." : "执行选股"}
         </button>
       </div>
 
@@ -147,9 +167,8 @@ export function ScreeningPage() {
         <RunScanModal
           strategies={strategies}
           defaultStrategy={activeStrategy}
-          isPending={runScan.isPending}
           onClose={() => setShowRunModal(false)}
-          onSubmit={(strategy, date) => runScan.mutate({ strategy, date })}
+          onSubmit={(strategy, date) => handleSubmitScan(strategy, date)}
         />
       )}
 
@@ -170,13 +189,11 @@ export function ScreeningPage() {
 function RunScanModal({
   strategies,
   defaultStrategy,
-  isPending,
   onClose,
   onSubmit,
 }: {
   strategies: Array<{ key: string; name: string; description?: string }>;
   defaultStrategy: string;
-  isPending: boolean;
   onClose: () => void;
   onSubmit: (strategy: string, date?: string) => void;
 }) {
@@ -232,11 +249,10 @@ function RunScanModal({
           </button>
           <button
             onClick={() => onSubmit(strategy, date)}
-            disabled={isPending}
-            className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm flex items-center gap-1.5"
+            className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-sm flex items-center gap-1.5"
           >
-            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {isPending ? "扫描中..." : "开始选股"}
+            <Play className="w-4 h-4" />
+            开始选股
           </button>
         </div>
       </div>
