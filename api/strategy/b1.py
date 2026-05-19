@@ -64,10 +64,15 @@ class B1Strategy(BaseStrategy):
     burst_max_chg = 13.0
     burst_vol_ratio = 1.3
     burst_recent_below_days = 5
+    burst_max_above_yellow_pct = 5.0   # 异动日 open 距大哥黄最大偏离
+    burst_pre_range_days = 20           # 异动前窄幅震荡检测窗口
+    burst_pre_range_max_ratio = 1.12    # 异动前 max/min 上限
 
     stable_below_yellow_max = 5
-    stable_drop_pct = 5.0
+    stable_drop_pct = 5.0              # 异动后放量大阴阈值（恢复原值）
     stable_drop_vol_ratio = 1.5
+    burst_exhaustion_pct = 15.0        # 异动后涨幅超此值
+    burst_exhaustion_pullback_pct = 5.0 # 且从峰值回落超此值 → 视为行情已走完
 
     macd_cross_lookback = 60
     divergence_price_max = 25.0

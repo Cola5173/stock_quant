@@ -171,6 +171,15 @@ def check_one(args: tuple):
     score = 0
     breakdown = []
     for ci in candidates:
+        # 新增：burst 耗尽检查——异动后涨超 X% 且从峰值回落超 Y%，行情已走完
+        burst_close = closes[ci]
+        if burst_close > 0 and ci + 1 < n_total:
+            max_after_burst = float(np.max(closes[ci + 1:]))
+            rally_pct = (max_after_burst / burst_close - 1) * 100
+            pullback_pct = (max_after_burst - cur_close) / max_after_burst * 100
+            if rally_pct > B1Strategy.burst_exhaustion_pct and pullback_pct > B1Strategy.burst_exhaustion_pullback_pct:
+                continue
+
         big_drop = False
         for jj in range(ci + 1, n_total - 1):
             o, c = opens[jj], closes[jj]
