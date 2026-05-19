@@ -8,7 +8,7 @@ const NAV_ITEMS = [
   { key: "chart", label: "K线图表", icon: CandlestickChart },
   { key: "backtest", label: "个股回测", icon: FlaskConical },
   { key: "screening", label: "选股", icon: Search },
-  { key: "live", label: "实盘", icon: Activity },
+  { key: "live", label: "模拟盘", icon: Activity },
 ] as const;
 
 export type NavKey = "home" | "settings" | (typeof NAV_ITEMS)[number]["key"];
