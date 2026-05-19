@@ -4,7 +4,7 @@ from typing import List
 
 from vnpy.trader.constant import Direction
 
-from api.strategy.b1 import B1Strategy
+from api.strategy.b1_small import B1SmallStrategy
 from api.backtest.engine import BacktestRunner
 from api.adapter.vnpy_adapter import VnpyAdapter
 from api.schemas.models import (
@@ -15,7 +15,7 @@ from api.schemas.models import (
 
 # 策略注册表（key → (name, class, description)）
 STRATEGY_REGISTRY = {
-    "b1": ("B1", B1Strategy, "异动突破回踩企稳 + 放飞盈利分批减仓"),
+    "b1_small": ("B1 Small", B1SmallStrategy, "B1 小资金版：仅主板 + 严格止损 + T+5 时间止损"),
 }
 
 # vnpy ArrayManager(size=200) 预热所需的额外历史天数
