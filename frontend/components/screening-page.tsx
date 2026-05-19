@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Play, Loader2, Calendar } from "lucide-react";
+import { Play, Loader2, Calendar } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { SelectedDetail } from "@/lib/types";
@@ -70,15 +70,15 @@ export function ScreeningPage() {
   });
 
   return (
-    <div className="h-full flex flex-col p-6">
+    <div className="h-full flex flex-col p-4">
       {/* 顶部：策略标签 + 执行按钮 */}
-      <div className="flex gap-3 mb-3 items-center">
+      <div className="flex gap-2 mb-2 items-center">
         {strategies.map((s) => (
           <button
             key={s.key}
             onClick={() => { setActiveStrategy(s.key); setSelectedDate(null); }}
             className={cn(
-              "px-5 py-2 text-sm rounded-full border transition-colors",
+              "px-4 py-1.5 text-xs rounded-full border transition-colors",
               activeStrategy === s.key
                 ? "bg-red-600 border-red-600 text-white"
                 : "bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500"
@@ -90,22 +90,22 @@ export function ScreeningPage() {
         <button
           onClick={() => setShowRunModal(true)}
           disabled={!!runningTask}
-          className="ml-auto flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
+          className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
         >
-          {runningTask ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          {runningTask ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
           {runningTask ? "扫描中..." : "执行选股"}
         </button>
       </div>
 
       {/* 日期标签行 */}
       {records.length > 0 && (
-        <div className="flex gap-2 mb-5 overflow-x-auto pb-2">
+        <div className="flex gap-1.5 mb-3 overflow-x-auto pb-1">
           {records.map((r) => (
             <button
               key={r.date}
               onClick={() => setSelectedDate(r.date)}
               className={cn(
-                "shrink-0 px-4 py-1.5 text-sm rounded-full border transition-colors",
+                "shrink-0 px-3 py-1 text-xs rounded-full border transition-colors",
                 currentDate === r.date
                   ? "bg-red-600 border-red-600 text-white"
                   : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500"
@@ -117,17 +117,10 @@ export function ScreeningPage() {
         </div>
       )}
 
-      {/* 统计信息栏 */}
+      {/* 统计信息 */}
       {detail && (
-        <div className="flex items-center justify-between mb-4 text-sm text-zinc-400">
-          <span>共 {detail.candidates_count} 只 · 扫描日期: {detail.scan_date}</span>
-          <button
-            onClick={() => handleDownload(detail)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-700 text-zinc-300 hover:border-zinc-500 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            下载股票列表
-          </button>
+        <div className="mb-2 text-xs text-zinc-500">
+          共 {detail.candidates_count} 只 · {detail.scan_date}
         </div>
       )}
 
@@ -136,20 +129,20 @@ export function ScreeningPage() {
         <div className="flex-1 overflow-y-auto border border-zinc-800 rounded-lg">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-zinc-900">
-              <tr className="text-zinc-400 text-left border-b border-zinc-800">
-                <th className="px-4 py-3 font-medium w-12">#</th>
-                <th className="px-4 py-3 font-medium">代码</th>
-                <th className="px-4 py-3 font-medium">名称</th>
-                <th className="px-4 py-3 font-medium text-right">评分</th>
+              <tr className="text-zinc-500 text-xs border-b border-zinc-800">
+                <th className="px-3 py-2 font-medium text-left w-10">#</th>
+                <th className="px-3 py-2 font-medium text-left">代码</th>
+                <th className="px-3 py-2 font-medium text-left">名称</th>
+                <th className="px-3 py-2 font-medium text-right">评分</th>
               </tr>
             </thead>
             <tbody>
               {detail.candidates.map((c, i) => (
                 <tr key={c.symbol} className="border-t border-zinc-800/50 hover:bg-zinc-800/30">
-                  <td className="px-4 py-2.5 text-zinc-500">{i + 1}</td>
-                  <td className="px-4 py-2.5 text-zinc-200">{c.symbol}</td>
-                  <td className="px-4 py-2.5 text-zinc-200">{c.name}</td>
-                  <td className="px-4 py-2.5 text-right text-zinc-200">{c.score != null ? c.score : "-"}</td>
+                  <td className="px-3 py-2 text-zinc-500 text-xs">{i + 1}</td>
+                  <td className="px-3 py-2 text-zinc-200">{c.symbol}</td>
+                  <td className="px-3 py-2 text-zinc-200">{c.name}</td>
+                  <td className="px-3 py-2 text-right text-zinc-200">{c.score != null ? c.score : "-"}</td>
                 </tr>
               ))}
             </tbody>
@@ -159,7 +152,7 @@ export function ScreeningPage() {
 
       {/* 空状态 */}
       {!detail && records.length === 0 && (
-        <p className="text-zinc-500 text-center mt-20">暂无选股记录，点击"执行选股"开始</p>
+        <p className="text-zinc-500 text-sm text-center mt-12">暂无选股记录，点击"执行选股"开始</p>
       )}
 
       {/* 执行选股弹框 */}
@@ -307,16 +300,4 @@ function SingleCalendar({ year, month, selected, onSelect, onPrev, onNext }: {
   );
 }
 
-function handleDownload(detail: SelectedDetail) {
-  const header = "序号,代码,名称,评分\n";
-  const rows = detail.candidates
-    .map((c, i) => `${i + 1},${c.symbol},${c.name},${c.score ?? ""}`)
-    .join("\n");
-  const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `selected_${detail.strategy}_${detail.scan_date}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+function handleDownload(_detail: SelectedDetail) {}
