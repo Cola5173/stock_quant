@@ -60,6 +60,7 @@ def run_decision(date: str, strategy_key: str = "b1_small") -> Decision:
                 date, slots_left, total_capital,
                 market["single_position_pct"],
                 [p["symbol"] for p in positions],
+                strategy_key,
                 cfg,
             )
             actions.extend(buy_actions)
@@ -279,24 +280,20 @@ def _compute_risk(pos: Position, df: pd.DataFrame, date: str,
 
 def _scan_buy_candidates(date: str, slots_left: int, total_capital: float,
                          position_pct: float, exclude_symbols: list,
-                         cfg: dict) -> list:
-    """根据策略配置调用对应 scan 模块并发扫描全市场，取 top"""
-    import importlib
-    scan_mod = importlib.import_module(cfg["scan_module"])
-    check_one = scan_mod.check_one
-    symbols = scan_mod.list_symbols()
+                         strategy_key: str, cfg: dict) -> list:
+    """复用「策略选股」同一套 Scanner（api/scanner/scanner.py），
+    确保「模拟盘明日建议」的候选池 = 策略选股结果，避免两套 scan 逻辑不一致。"""
+    from api.scanner.scanner import Scanner
 
-    tasks = [(s, date) for s in symbols if s not in exclude_symbols]
+    # 候选池：data/ 下所有 6 位数字 CSV
+    stock_codes = sorted(
+        f[:-4] for f in os.listdir(settings.DATA_DIR)
+        if f.endswith(".csv") and len(f) == 10 and f[:6].isdigit()
+    )
+    stock_codes = [s for s in stock_codes if s not in exclude_symbols]
 
-    hits = []
-    with ProcessPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(check_one, t): t for t in tasks}
-        for fut in as_completed(futures):
-            r = fut.result()
-            if r:
-                hits.append(r)
-
-    hits.sort(key=lambda x: -x["score"])
+    scanner = Scanner(strategy_key, stock_codes)
+    hits = scanner.scan(date)
     top = hits[:slots_left]
 
     actions = []
