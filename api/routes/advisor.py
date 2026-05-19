@@ -33,14 +33,15 @@ def update_positions(data: dict):
 
 
 @router.post("/advisor/run-decision")
-def trigger_decision(date: str = None):
+def trigger_decision(date: str = None, strategy: str = "b1_small"):
     """手动触发决策计算"""
     if not date:
         date = datetime.now().strftime("%Y-%m-%d")
-    decision = run_decision(date)
+    decision = run_decision(date, strategy_key=strategy)
     from api.advisor.decision_engine import _serialize_holding
     return {
         "date": decision.date,
+        "strategy": decision.strategy,
         "next_trading_date": decision.next_trading_date,
         "market": decision.market,
         "cooldown": decision.cooldown,

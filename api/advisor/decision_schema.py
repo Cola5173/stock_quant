@@ -45,6 +45,7 @@ class HoldingInfo:
 class Decision:
     date: str
     next_trading_date: str
+    strategy: str = "b1_small"
     market: dict = field(default_factory=dict)
     cooldown: dict = field(default_factory=dict)
     holdings: list = field(default_factory=list)

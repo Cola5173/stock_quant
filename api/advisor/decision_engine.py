@@ -12,6 +12,7 @@ from api.config import settings
 from api.advisor.cooldown import load_closed_trades, compute_cooldown_state
 from api.advisor.decision_schema import Decision, ActionItem, HoldingInfo, RiskInfo
 from api.advisor.position_state import replay_state
+from api.advisor.strategy_config import get_config
 from api.portfolio.rules import (
     Position, calc_sell_signal, load_csv, get_bar, get_history_until,
     market_allow_buy, market_is_strong, INDEX_DEFAULT,
@@ -22,12 +23,13 @@ from api.schemas.kline_constants import KLineConstants
 logger = logging.getLogger(__name__)
 
 
-def run_decision(date: str) -> Decision:
+def run_decision(date: str, strategy_key: str = "b1_small") -> Decision:
     """主入口：生成指定日期的决策"""
+    cfg = get_config(strategy_key)
     positions_data = _load_positions()
     index_df = load_csv(INDEX_DEFAULT)
 
-    market = _market_state(date, index_df)
+    market = _market_state(date, index_df, cfg)
     cooldown = _get_cooldown_state(date, index_df)
 
     holdings_info = []
@@ -39,7 +41,7 @@ def run_decision(date: str) -> Decision:
 
     # 评估持仓
     for p in positions:
-        pos, holding, action = _evaluate_one_holding(p, date, market)
+        pos, holding, action = _evaluate_one_holding(p, date, market, cfg)
         if holding:
             holdings_info.append(holding)
         if action:
@@ -57,7 +59,8 @@ def run_decision(date: str) -> Decision:
             buy_actions = _scan_buy_candidates(
                 date, slots_left, total_capital,
                 market["single_position_pct"],
-                [p["symbol"] for p in positions]
+                [p["symbol"] for p in positions],
+                cfg,
             )
             actions.extend(buy_actions)
         else:
@@ -94,6 +97,7 @@ def run_decision(date: str) -> Decision:
     next_td = _compute_next_trading_date(date)
     decision = Decision(
         date=date,
+        strategy=strategy_key,
         next_trading_date=next_td,
         market=market,
         cooldown=cooldown,
@@ -122,11 +126,10 @@ def _load_positions() -> dict:
     return data
 
 
-def _market_state(date: str, index_df) -> dict:
+def _market_state(date: str, index_df, cfg: dict) -> dict:
     if index_df is None:
         return {"index": INDEX_DEFAULT, "allow_buy": False, "is_strong": False,
                 "max_slots": 1, "single_position_pct": 0.40}
-    cfg = settings.ADVISOR_CONFIG
     allow = market_allow_buy(date, index_df)
     strong = market_is_strong(date, index_df)
     max_slots = cfg["max_slots_strong"] if strong else cfg["max_slots_weak"]
@@ -156,7 +159,7 @@ def _get_cooldown_state(date: str, index_df) -> dict:
     return compute_cooldown_state(trades, today_idx)
 
 
-def _evaluate_one_holding(p: dict, date: str, market: dict):
+def _evaluate_one_holding(p: dict, date: str, market: dict, cfg: dict):
     """评估单只持仓，返回 (Position, HoldingInfo, ActionItem)"""
     from tests.scan_v2_style import _load_name_map
     name_map = _load_name_map()
@@ -181,14 +184,20 @@ def _evaluate_one_holding(p: dict, date: str, market: dict):
                                          reason="无行情数据")
 
     replay_state(pos, df, date, market.get("is_strong", True))
-    reason, ratio = calc_sell_signal(pos, df, date, market.get("is_strong", True))
+    reason, ratio = calc_sell_signal(
+        pos, df, date, market.get("is_strong", True),
+        hold_days=cfg["hold_days"],
+        min_gain_pct=cfg["min_gain_pct"],
+        weak_stop_pct=cfg["weak_stop_loss_pct"],
+        strong_stop_pct=cfg["strong_stop_loss_pct"],
+    )
 
     bar = get_bar(df, date)
     cur_close = float(bar[KLineConstants.CLOSE]) if bar is not None else pos.cost_price
     profit_pct = (cur_close - pos.cost_price) / pos.cost_price * 100
 
     # 计算风险信息
-    risk = _compute_risk(pos, df, date, cur_close, profit_pct, market.get("is_strong", True))
+    risk = _compute_risk(pos, df, date, cur_close, profit_pct, market.get("is_strong", True), cfg)
 
     holding = HoldingInfo(
         symbol=symbol, name=name, shares=pos.shares,
@@ -213,13 +222,14 @@ def _evaluate_one_holding(p: dict, date: str, market: dict):
 
 
 def _compute_risk(pos: Position, df: pd.DataFrame, date: str,
-                  cur_close: float, profit_pct: float, market_strong: bool) -> RiskInfo:
+                  cur_close: float, profit_pct: float, market_strong: bool,
+                  cfg: dict) -> RiskInfo:
     """计算持仓风险信息"""
     risk = RiskInfo()
     notes = []
 
     # 硬止损距离
-    stop_pct = -7.0 if market_strong else -4.0
+    stop_pct = -cfg["strong_stop_loss_pct"] if market_strong else -cfg["weak_stop_loss_pct"]
     risk.stop_loss_distance = round(profit_pct - stop_pct, 2)
     if risk.stop_loss_distance < 2.0:
         notes.append(f"距硬止损仅 {risk.stop_loss_distance:.1f}%")
@@ -235,13 +245,15 @@ def _compute_risk(pos: Position, df: pd.DataFrame, date: str,
             if risk.yellow_distance < 2.0:
                 notes.append(f"距大哥黄仅 {risk.yellow_distance:.1f}%")
 
-    # T+3 倒计时
-    risk.t3_countdown = max(0, T3_HOLD_DAYS - pos.hold_days)
+    # T+N 倒计时
+    hold_days_cfg = cfg["hold_days"]
+    min_gain_cfg = cfg["min_gain_pct"]
+    risk.t3_countdown = max(0, hold_days_cfg - pos.hold_days)
     risk.t3_profit = round(profit_pct, 2)
-    if risk.t3_countdown == 0 and profit_pct < T3_MIN_GAIN_PCT:
-        notes.append(f"T+3 已到期且涨幅不足 {T3_MIN_GAIN_PCT}%（当前 {profit_pct:+.2f}%）")
-    elif risk.t3_countdown <= 1 and profit_pct < T3_MIN_GAIN_PCT:
-        notes.append(f"T+3 倒计时 {risk.t3_countdown} 天，涨幅 {profit_pct:+.2f}% 不足")
+    if risk.t3_countdown == 0 and profit_pct < min_gain_cfg:
+        notes.append(f"T+{hold_days_cfg} 已到期且涨幅不足 {min_gain_cfg}%（当前 {profit_pct:+.2f}%）")
+    elif risk.t3_countdown <= 1 and profit_pct < min_gain_cfg:
+        notes.append(f"T+{hold_days_cfg} 倒计时 {risk.t3_countdown} 天，涨幅 {profit_pct:+.2f}% 不足")
 
     # 趋势白判断
     if pos.above_white_once:
@@ -266,11 +278,14 @@ def _compute_risk(pos: Position, df: pd.DataFrame, date: str,
 
 
 def _scan_buy_candidates(date: str, slots_left: int, total_capital: float,
-                         position_pct: float, exclude_symbols: list) -> list:
-    """调用 scan_v2_style.check_one 并发扫描全市场，取 top"""
-    from tests.scan_v2_style import check_one, list_symbols, _load_name_map
+                         position_pct: float, exclude_symbols: list,
+                         cfg: dict) -> list:
+    """根据策略配置调用对应 scan 模块并发扫描全市场，取 top"""
+    import importlib
+    scan_mod = importlib.import_module(cfg["scan_module"])
+    check_one = scan_mod.check_one
+    symbols = scan_mod.list_symbols()
 
-    symbols = list_symbols()
     tasks = [(s, date) for s in symbols if s not in exclude_symbols]
 
     hits = []
@@ -292,6 +307,7 @@ def _scan_buy_candidates(date: str, slots_left: int, total_capital: float,
         est_shares = int(amount / est_price // 100) * 100
         if est_shares <= 0:
             continue
+        breakdown_str = " ".join(cand.get("breakdown", []))
         actions.append(ActionItem(
             kind="buy",
             symbol=cand["symbol"],
@@ -299,7 +315,7 @@ def _scan_buy_candidates(date: str, slots_left: int, total_capital: float,
             amount=round(amount, 2),
             estimated_price=round(est_price, 2),
             estimated_shares=est_shares,
-            reason=f"V2 ML 评分 Top{len(actions)+1} (score={cand['score']:.1f})",
+            reason=f"B1异动突破 Top{len(actions)+1} (score={cand['score']}) [{breakdown_str}]",
             exec_desc="明日开盘市价（估算价以今日收盘×1.001 计；实际以开盘为准）",
         ))
     return actions
@@ -338,6 +354,7 @@ def _save_decision(decision: Decision):
 
     data = {
         "date": decision.date,
+        "strategy": decision.strategy,
         "next_trading_date": decision.next_trading_date,
         "market": decision.market,
         "cooldown": decision.cooldown,

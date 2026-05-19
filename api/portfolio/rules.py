@@ -141,7 +141,11 @@ def market_is_strong(date: str, index_df: pd.DataFrame) -> bool:
 
 
 def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str,
-                     market_strong: bool = True) -> tuple:
+                     market_strong: bool = True,
+                     hold_days: int = T3_HOLD_DAYS,
+                     min_gain_pct: float = T3_MIN_GAIN_PCT,
+                     weak_stop_pct: float = 4.0,
+                     strong_stop_pct: float = 7.0) -> tuple:
     """返回 (reason, sell_ratio)。6 类规则按 0→5 顺序判定，命中即返回。"""
     bar = get_bar(df, date)
     if bar is None:
@@ -168,8 +172,8 @@ def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str,
     if cur_close >= cur_white:
         pos.above_white_once = True
 
-    # 0. 硬止损：弱市 -4%，强市 -7%
-    stop_pct = -7.0 if market_strong else -4.0
+    # 0. 硬止损：弱市 -weak_stop_pct%，强市 -strong_stop_pct%
+    stop_pct = -strong_stop_pct if market_strong else -weak_stop_pct
     if cur_profit <= stop_pct:
         return f"硬止损({stop_pct:.0f}%, 当前{cur_profit:.2f}%)", 1.0
 
@@ -190,8 +194,8 @@ def calc_sell_signal(pos: Position, df: pd.DataFrame, date: str,
         return "破趋势白(曾上穿)", 1.0
 
     # 4. T+N 不涨即卖
-    if pos.hold_days >= T3_HOLD_DAYS and cur_profit < T3_MIN_GAIN_PCT:
-        return f"T+{T3_HOLD_DAYS} 涨幅<{T3_MIN_GAIN_PCT}%(当前{cur_profit:+.2f}%)", 1.0
+    if pos.hold_days >= hold_days and cur_profit < min_gain_pct:
+        return f"T+{hold_days} 涨幅<{min_gain_pct}%(当前{cur_profit:+.2f}%)", 1.0
 
     # 5. 分批止盈
     next_lv = pos.tp_level_done + 1

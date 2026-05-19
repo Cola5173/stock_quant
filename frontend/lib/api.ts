@@ -52,10 +52,15 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  runDecision: (date?: string) =>
-    http<Record<string, unknown>>(`/api/advisor/run-decision${date ? `?date=${date}` : ""}`, {
+  runDecision: (date?: string, strategy?: string) => {
+    const params = new URLSearchParams();
+    if (date) params.set("date", date);
+    if (strategy) params.set("strategy", strategy);
+    const qs = params.toString();
+    return http<Record<string, unknown>>(`/api/advisor/run-decision${qs ? `?${qs}` : ""}`, {
       method: "POST",
-    }),
+    });
+  },
   // 策略回测
   portfolioStrategies: () =>
     http<Array<{ key: string; label: string; description: string[] }>>("/api/portfolio-backtest/strategies"),

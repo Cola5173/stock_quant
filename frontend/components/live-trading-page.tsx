@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Edit, RefreshCw } from "lucide-react";
+import { Edit, RefreshCw, ChevronRight } from "lucide-react";
 import type { StockItem } from "@/lib/types";
 
 const ACTION_COLORS: Record<string, string> = {
@@ -21,6 +21,54 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 export function LiveTradingPage() {
+  const [strategy, setStrategy] = useState<string | null>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("live_strategy") || null;
+    }
+    return null;
+  });
+
+  if (!strategy) {
+    return <StrategySelector onSelect={(key) => {
+      localStorage.setItem("live_strategy", key);
+      setStrategy(key);
+    }} />;
+  }
+
+  return <LiveTradingMain strategy={strategy} onChangeStrategy={() => {
+    localStorage.removeItem("live_strategy");
+    setStrategy(null);
+  }} />;
+}
+
+function StrategySelector({ onSelect }: { onSelect: (key: string) => void }) {
+  const { data: strategies = [] } = useQuery({ queryKey: ["strategies"], queryFn: api.strategies });
+  return (
+    <div className="h-full flex items-center justify-center">
+      <div className="w-full max-w-md space-y-4">
+        <h2 className="text-lg font-semibold text-zinc-200 text-center">选择策略</h2>
+        <p className="text-xs text-zinc-500 text-center">模拟盘将根据所选策略生成明日建议</p>
+        <div className="space-y-2">
+          {strategies.map((s) => (
+            <button
+              key={s.key}
+              onClick={() => onSelect(s.key)}
+              className="w-full flex items-center justify-between bg-zinc-900/50 border border-zinc-800 rounded-lg p-4 hover:border-blue-600 transition-colors"
+            >
+              <div className="text-left">
+                <div className="text-sm font-medium text-zinc-200">{s.name}</div>
+                {s.description && <div className="text-xs text-zinc-500 mt-0.5">{s.description}</div>}
+              </div>
+              <ChevronRight className="w-4 h-4 text-zinc-500" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onChangeStrategy: () => void }) {
   const queryClient = useQueryClient();
   const [totalCapital, setTotalCapital] = useState(100000);
   const [positions, setPositions] = useState<Array<{ symbol: string; shares: number; cost_price: number; buy_date: string }>>([]);
@@ -68,7 +116,7 @@ export function LiveTradingPage() {
   });
 
   const recalculate = useMutation({
-    mutationFn: () => api.runDecision(),
+    mutationFn: () => api.runDecision(undefined, strategy),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["advisor-latest"] });
     },
@@ -122,6 +170,12 @@ export function LiveTradingPage() {
 
   return (
     <div className="h-full overflow-y-auto space-y-4">
+      {/* 策略标识 + 切换 */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-zinc-500">策略：<span className="text-zinc-300">{strategy}</span></span>
+        <button onClick={onChangeStrategy} className="text-xs text-blue-400 hover:text-blue-300">切换策略</button>
+      </div>
+
       {/* 大盘状态 */}
       <div className="flex gap-3 flex-wrap">
         <StatusBadge
