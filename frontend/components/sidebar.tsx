@@ -7,7 +7,7 @@ import { useState } from "react";
 const NAV_ITEMS = [
   { key: "chart", label: "K线图表", icon: CandlestickChart },
   { key: "backtest", label: "个股回测", icon: FlaskConical },
-  { key: "screening", label: "选股", icon: Search },
+  { key: "screening", label: "策略选股", icon: Search },
   { key: "portfolio_backtest", label: "策略回测", icon: BarChart3 },
   { key: "live", label: "模拟盘", icon: Activity },
 ] as const;

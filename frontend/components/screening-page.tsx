@@ -7,15 +7,14 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { SelectedDetail } from "@/lib/types";
 
-const STRATEGY_TABS = [
-  { key: "b1", label: "b1"},
-];
-
 export function ScreeningPage() {
-  const [activeStrategy, setActiveStrategy] = useState("b1");
+  const [activeStrategy, setActiveStrategy] = useState("b1_small");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
+  const [showRunModal, setShowRunModal] = useState(false);
   const queryClient = useQueryClient();
+
+  const { data: strategies = [] } = useQuery({ queryKey: ["strategies"], queryFn: api.strategies });
 
   const showToast = (type: "success" | "error", msg: string) => {
     setToast({ type, msg });
@@ -28,11 +27,14 @@ export function ScreeningPage() {
   });
 
   const runScan = useMutation({
-    mutationFn: () => api.runScan(activeStrategy),
+    mutationFn: (params: { strategy: string; date?: string }) =>
+      api.runScan(params.strategy, params.date),
     onSuccess: (data) => {
       showToast("success", `选股完成：${data.date} 命中 ${data.candidates_count} 只`);
-      queryClient.invalidateQueries({ queryKey: ["selected-records", activeStrategy] });
+      setActiveStrategy(data.strategy);
+      queryClient.invalidateQueries({ queryKey: ["selected-records", data.strategy] });
       setSelectedDate(data.date);
+      setShowRunModal(false);
     },
     onError: (err: Error) => {
       showToast("error", `选股失败：${err.message}`);
@@ -50,32 +52,28 @@ export function ScreeningPage() {
 
   return (
     <div className="h-full flex flex-col p-6">
-      {/* 策略 Tab 栏 + 运行按钮 */}
+      {/* 顶部：策略标签 + 执行按钮 */}
       <div className="flex gap-3 mb-3 items-center">
-        {STRATEGY_TABS.map((tab) => (
+        {strategies.map((s) => (
           <button
-            key={tab.key}
-            onClick={() => {
-              setActiveStrategy(tab.key);
-              setSelectedDate(null);
-            }}
+            key={s.key}
+            onClick={() => { setActiveStrategy(s.key); setSelectedDate(null); }}
             className={cn(
               "px-5 py-2 text-sm rounded-full border transition-colors",
-              activeStrategy === tab.key
+              activeStrategy === s.key
                 ? "bg-red-600 border-red-600 text-white"
                 : "bg-zinc-900 border-zinc-700 text-zinc-300 hover:border-zinc-500"
             )}
           >
-            {tab.label}
+            {s.name}
           </button>
         ))}
         <button
-          onClick={() => runScan.mutate()}
-          disabled={runScan.isPending}
-          className="ml-auto flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
+          onClick={() => setShowRunModal(true)}
+          className="ml-auto flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-500 text-white transition-colors"
         >
-          {runScan.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-          {runScan.isPending ? "扫描中..." : `执行 ${activeStrategy} 当天选股`}
+          <Play className="w-4 h-4" />
+          执行选股
         </button>
       </div>
 
@@ -141,7 +139,18 @@ export function ScreeningPage() {
 
       {/* 空状态 */}
       {!detail && records.length === 0 && (
-        <p className="text-zinc-500 text-center mt-20">暂无选股记录</p>
+        <p className="text-zinc-500 text-center mt-20">暂无选股记录，点击"执行选股"开始</p>
+      )}
+
+      {/* 执行选股弹框 */}
+      {showRunModal && (
+        <RunScanModal
+          strategies={strategies}
+          defaultStrategy={activeStrategy}
+          isPending={runScan.isPending}
+          onClose={() => setShowRunModal(false)}
+          onSubmit={(strategy, date) => runScan.mutate({ strategy, date })}
+        />
       )}
 
       {/* Toast */}
@@ -154,6 +163,67 @@ export function ScreeningPage() {
           {toast.msg}
         </div>
       )}
+    </div>
+  );
+}
+
+function RunScanModal({
+  strategies,
+  defaultStrategy,
+  isPending,
+  onClose,
+  onSubmit,
+}: {
+  strategies: Array<{ key: string; name: string; description?: string }>;
+  defaultStrategy: string;
+  isPending: boolean;
+  onClose: () => void;
+  onSubmit: (strategy: string, date?: string) => void;
+}) {
+  const [strategy, setStrategy] = useState(defaultStrategy);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-semibold text-zinc-200 mb-4">执行策略选股</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-zinc-500 mb-1.5 block">策略</label>
+            <select
+              value={strategy}
+              onChange={(e) => setStrategy(e.target.value)}
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+            >
+              {strategies.map((s) => (
+                <option key={s.key} value={s.key}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-zinc-500 mb-1.5 block">选股日期</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+        <div className="flex gap-2 justify-end mt-5">
+          <button onClick={onClose} className="px-4 py-2 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm">
+            取消
+          </button>
+          <button
+            onClick={() => onSubmit(strategy, date)}
+            disabled={isPending}
+            className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm flex items-center gap-1.5"
+          >
+            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            {isPending ? "扫描中..." : "开始选股"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
