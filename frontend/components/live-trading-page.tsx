@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Edit, RefreshCw } from "lucide-react";
@@ -21,12 +21,38 @@ const ACTION_LABELS: Record<string, string> = {
 
 export function LiveTradingPage() {
   const queryClient = useQueryClient();
-  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [totalCapital, setTotalCapital] = useState(100000);
+  const [positions, setPositions] = useState<Array<{ symbol: string; shares: number; cost_price: number; buy_date: string }>>([]);
+  const [initialized, setInitialized] = useState(false);
 
   const { data, isPending, isError } = useQuery({
     queryKey: ["advisor-latest"],
     queryFn: () => api.advisorLatest(),
     refetchInterval: 60_000,
+  });
+
+  // 初始化编辑数据（仅在首次加载时同步，避免覆盖用户编辑）
+  const positionsData = data?.positions as { total_capital?: number; positions?: Array<Record<string, unknown>> } | null;
+  useEffect(() => {
+    if (positionsData && !initialized) {
+      setTotalCapital(positionsData.total_capital ?? 100000);
+      setPositions(
+        (positionsData.positions ?? []).map((p) => ({
+          symbol: String(p.symbol ?? ""),
+          shares: Number(p.shares ?? 0),
+          cost_price: Number(p.cost_price ?? 0),
+          buy_date: String(p.buy_date ?? ""),
+        }))
+      );
+      setInitialized(true);
+    }
+  }, [positionsData, initialized]);
+
+  const updateMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) => api.updatePositions(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["advisor-latest"] });
+    },
   });
 
   const recalculate = useMutation({
@@ -36,6 +62,27 @@ export function LiveTradingPage() {
     },
   });
 
+  const handleSave = () => {
+    updateMutation.mutate({
+      total_capital: totalCapital,
+      positions: positions.filter((p) => p.symbol && p.shares > 0 && p.cost_price > 0 && p.buy_date),
+    });
+  };
+
+  const addPosition = () => {
+    setPositions([...positions, { symbol: "", shares: 100, cost_price: 10.0, buy_date: new Date().toISOString().slice(0, 10) }]);
+  };
+
+  const removePosition = (index: number) => {
+    setPositions(positions.filter((_, i) => i !== index));
+  };
+
+  const updatePosition = (index: number, field: string, value: string | number) => {
+    const updated = [...positions];
+    updated[index] = { ...updated[index], [field]: value };
+    setPositions(updated);
+  };
+
   if (isPending) {
     return <div className="flex items-center justify-center h-full text-zinc-500">加载中…</div>;
   }
@@ -43,7 +90,6 @@ export function LiveTradingPage() {
     return <div className="flex items-center justify-center h-full text-zinc-500">加载失败</div>;
   }
 
-  const positions = data?.positions as { total_capital?: number; positions?: Array<Record<string, unknown>> } | null;
   const decision = data?.decision as Record<string, unknown> | null;
   const holdings = (decision?.holdings ?? []) as Array<Record<string, unknown>>;
   const actions = (decision?.actions ?? []) as Array<Record<string, unknown>>;
@@ -74,17 +120,18 @@ export function LiveTradingPage() {
         )}
       </div>
 
-      {/* 持仓表 */}
+      {/* 持仓编辑 */}
       <Section
         title="当前持仓"
         actions={
           <div className="flex gap-2">
             <button
-              onClick={() => setEditModalOpen(true)}
-              className="px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs flex items-center gap-1.5"
+              onClick={handleSave}
+              disabled={updateMutation.isPending}
+              className="px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-700 disabled:text-zinc-500 text-zinc-300 text-xs flex items-center gap-1.5"
             >
               <Edit className="w-3.5 h-3.5" />
-              编辑持仓
+              {updateMutation.isPending ? "保存中..." : "保存持仓"}
             </button>
             <button
               onClick={() => recalculate.mutate()}
@@ -97,37 +144,89 @@ export function LiveTradingPage() {
           </div>
         }
       >
-        {holdings.length === 0 ? (
-          <p className="text-zinc-500 text-sm">空仓</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-zinc-400 border-b border-zinc-800">
-                <th className="text-left py-2 px-2">代码</th>
-                <th className="text-left py-2 px-2">名称</th>
-                <th className="text-right py-2 px-2">持有天数</th>
-                <th className="text-right py-2 px-2">成本</th>
-                <th className="text-right py-2 px-2">现价</th>
-                <th className="text-right py-2 px-2">浮盈</th>
-                <th className="text-right py-2 px-2">止盈档</th>
-              </tr>
-            </thead>
-            <tbody>
-              {holdings.map((h, i) => (
-                <tr key={i} className="border-b border-zinc-800/50">
-                  <td className="py-2 px-2 text-zinc-200">{h.symbol as string}</td>
-                  <td className="py-2 px-2 text-zinc-300">{h.name as string}</td>
-                  <td className="py-2 px-2 text-right">{h.hold_days as number}</td>
-                  <td className="py-2 px-2 text-right">{(h.cost_price as number)?.toFixed(2)}</td>
-                  <td className="py-2 px-2 text-right">{(h.current_close as number)?.toFixed(2)}</td>
-                  <td className={`py-2 px-2 text-right font-medium ${(h.profit_pct as number) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                    {(h.profit_pct as number) >= 0 ? "+" : ""}{(h.profit_pct as number)?.toFixed(2)}%
-                  </td>
-                  <td className="py-2 px-2 text-right">{h.tp_level_done as number}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* 总资金 */}
+        <div className="mb-4">
+          <label className="text-xs text-zinc-500 mb-1.5 block">总资金</label>
+          <input
+            type="number"
+            value={totalCapital}
+            onChange={(e) => setTotalCapital(Number(e.target.value))}
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+
+        {/* 持仓列表（编辑） */}
+        <div className="mb-2">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs text-zinc-500">持仓列表（可编辑）</label>
+            <button onClick={addPosition} className="text-xs text-blue-400 hover:text-blue-300">+ 添加持仓</button>
+          </div>
+          {positions.length === 0 ? (
+            <p className="text-zinc-500 text-sm py-2">暂无持仓，点击右上角"添加持仓"</p>
+          ) : (
+            <div className="space-y-2">
+              <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 text-xs text-zinc-500 px-2">
+                <span>代码</span><span>股数</span><span>成本价</span><span>买入日期</span><span></span>
+              </div>
+              {positions.map((p, i) => {
+                const holdingInfo = holdings.find((h) => h.symbol === p.symbol);
+                return (
+                  <div key={i}>
+                    <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 items-center">
+                      <input
+                        type="text"
+                        placeholder="代码"
+                        value={p.symbol}
+                        onChange={(e) => updatePosition(i, "symbol", e.target.value)}
+                        className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+                      />
+                      <input
+                        type="number"
+                        placeholder="股数"
+                        value={p.shares}
+                        onChange={(e) => updatePosition(i, "shares", Number(e.target.value))}
+                        className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="成本价"
+                        value={p.cost_price}
+                        onChange={(e) => updatePosition(i, "cost_price", Number(e.target.value))}
+                        className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+                      />
+                      <input
+                        type="date"
+                        value={p.buy_date}
+                        onChange={(e) => updatePosition(i, "buy_date", e.target.value)}
+                        className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
+                      />
+                      <button onClick={() => removePosition(i)} className="text-red-400 hover:text-red-300 text-xs">删除</button>
+                    </div>
+                    {/* 决策派生信息 */}
+                    {holdingInfo && (
+                      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_60px] gap-2 text-xs text-zinc-500 px-2 mt-1">
+                        <span>{String(holdingInfo.name ?? "")}</span>
+                        <span>持{String(holdingInfo.hold_days)}天</span>
+                        <span>现价 {Number(holdingInfo.current_close).toFixed(2)}</span>
+                        <span className={Number(holdingInfo.profit_pct) >= 0 ? "text-green-400" : "text-red-400"}>
+                          浮盈 {Number(holdingInfo.profit_pct) >= 0 ? "+" : ""}{Number(holdingInfo.profit_pct).toFixed(2)}%
+                        </span>
+                        <span>档位 {String(holdingInfo.tp_level_done)}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 错误提示 */}
+        {updateMutation.isError && (
+          <div className="mt-3 p-3 bg-red-950/50 border border-red-900 rounded-md text-red-300 text-xs">
+            保存失败：{(updateMutation.error as Error).message}
+          </div>
         )}
       </Section>
 
@@ -173,18 +272,6 @@ export function LiveTradingPage() {
           </ul>
         </Section>
       )}
-
-      {/* 编辑模态框 */}
-      {editModalOpen && (
-        <EditPositionsModal
-          initialData={positions ?? { total_capital: 100000, positions: [] }}
-          onClose={() => setEditModalOpen(false)}
-          onSave={() => {
-            setEditModalOpen(false);
-            queryClient.invalidateQueries({ queryKey: ["advisor-latest"] });
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -205,135 +292,6 @@ function StatusBadge({ label, value, positive }: { label: string; value: string;
   return (
     <div className={`px-3 py-1.5 rounded-md border text-sm ${positive ? "border-green-700 bg-green-900/30 text-green-300" : "border-red-700 bg-red-900/30 text-red-300"}`}>
       <span className="text-zinc-400 mr-1">{label}:</span>{value}
-    </div>
-  );
-}
-
-function EditPositionsModal({
-  initialData,
-  onClose,
-  onSave,
-}: {
-  initialData: { total_capital?: number; positions?: Array<Record<string, unknown>> };
-  onClose: () => void;
-  onSave: () => void;
-}) {
-  const [totalCapital, setTotalCapital] = useState(initialData.total_capital ?? 100000);
-  const [positions, setPositions] = useState<Array<{ symbol: string; shares: number; cost_price: number; buy_date: string }>>(
-    (initialData.positions ?? []).map((p) => ({
-      symbol: String(p.symbol ?? ""),
-      shares: Number(p.shares ?? 0),
-      cost_price: Number(p.cost_price ?? 0),
-      buy_date: String(p.buy_date ?? ""),
-    }))
-  );
-
-  const updateMutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) => api.updatePositions(data),
-    onSuccess: () => onSave(),
-  });
-
-  const handleSave = () => {
-    updateMutation.mutate({
-      total_capital: totalCapital,
-      positions: positions.filter((p) => p.symbol && p.shares > 0 && p.cost_price > 0 && p.buy_date),
-    });
-  };
-
-  const addPosition = () => {
-    setPositions([...positions, { symbol: "", shares: 100, cost_price: 10.0, buy_date: new Date().toISOString().slice(0, 10) }]);
-  };
-
-  const removePosition = (index: number) => {
-    setPositions(positions.filter((_, i) => i !== index));
-  };
-
-  const updatePosition = (index: number, field: string, value: string | number) => {
-    const updated = [...positions];
-    updated[index] = { ...updated[index], [field]: value };
-    setPositions(updated);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-3xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-lg font-semibold text-zinc-200 mb-4">编辑持仓</h2>
-
-        {/* 总资金 */}
-        <div className="mb-4">
-          <label className="text-xs text-zinc-500 mb-1.5 block">总资金</label>
-          <input
-            type="number"
-            value={totalCapital}
-            onChange={(e) => setTotalCapital(Number(e.target.value))}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
-          />
-        </div>
-
-        {/* 持仓列表 */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-xs text-zinc-500">持仓列表</label>
-            <button onClick={addPosition} className="text-xs text-blue-400 hover:text-blue-300">+ 添加持仓</button>
-          </div>
-          <div className="space-y-2">
-            {positions.map((p, i) => (
-              <div key={i} className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-center">
-                <input
-                  type="text"
-                  placeholder="代码"
-                  value={p.symbol}
-                  onChange={(e) => updatePosition(i, "symbol", e.target.value)}
-                  className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
-                />
-                <input
-                  type="number"
-                  placeholder="股数"
-                  value={p.shares}
-                  onChange={(e) => updatePosition(i, "shares", Number(e.target.value))}
-                  className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
-                />
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="成本价"
-                  value={p.cost_price}
-                  onChange={(e) => updatePosition(i, "cost_price", Number(e.target.value))}
-                  className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
-                />
-                <input
-                  type="date"
-                  value={p.buy_date}
-                  onChange={(e) => updatePosition(i, "buy_date", e.target.value)}
-                  className="bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-blue-500"
-                />
-                <button onClick={() => removePosition(i)} className="text-red-400 hover:text-red-300 text-xs">删除</button>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* 错误提示 */}
-        {updateMutation.isError && (
-          <div className="mb-4 p-3 bg-red-950/50 border border-red-900 rounded-md text-red-300 text-xs">
-            保存失败：{(updateMutation.error as Error).message}
-          </div>
-        )}
-
-        {/* 按钮 */}
-        <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="px-4 py-2 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm">
-            取消
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
-            className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm"
-          >
-            {updateMutation.isPending ? "保存中..." : "保存"}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
