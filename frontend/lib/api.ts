@@ -56,4 +56,18 @@ export const api = {
     http<Record<string, unknown>>(`/api/advisor/run-decision${date ? `?date=${date}` : ""}`, {
       method: "POST",
     }),
+  // 策略回测
+  portfolioStrategies: () =>
+    http<Array<{ key: string; label: string; description: string[] }>>("/api/portfolio-backtest/strategies"),
+  portfolioRuns: () =>
+    http<Array<Record<string, unknown>>>("/api/portfolio-backtest/runs"),
+  portfolioRunDetail: (id: string) =>
+    http<Record<string, unknown>>(`/api/portfolio-backtest/runs/${encodeURIComponent(id)}`),
+  portfolioRunStart: (req: { strategy: string; start: string; end: string; capital: number }) =>
+    http<{ status: string; out_path: string }>("/api/portfolio-backtest/run", {
+      method: "POST",
+      body: JSON.stringify(req),
+    }),
+  portfolioRunning: () =>
+    http<Array<{ strategy_key: string; start: string; end: string }>>("/api/portfolio-backtest/running"),
 };

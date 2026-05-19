@@ -15,6 +15,7 @@ import { ChartToolbar, aggregateToWeekly, type Granularity, type TimeRange } fro
 import { SettingsPage } from "@/components/settings-page";
 import { ScreeningPage } from "@/components/screening-page";
 import { LiveTradingPage } from "@/components/live-trading-page";
+import { PortfolioBacktestPage } from "@/components/portfolio-backtest-page";
 import type { BacktestRequest, BacktestResponse, StockItem } from "@/lib/types";
 
 function getDateRange(range: TimeRange): { start: string; end: string } {
@@ -225,6 +226,11 @@ export default function HomePage() {
           {/* 实盘 */}
           {navActive === "live" && (
             <LiveTradingPage />
+          )}
+
+          {/* 策略回测 */}
+          {navActive === "portfolio_backtest" && (
+            <PortfolioBacktestPage />
           )}
 
           {/* 设置 */}
