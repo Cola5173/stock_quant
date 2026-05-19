@@ -4,6 +4,7 @@ AkShare 数据获取模块
 """
 import os
 import time
+import random
 import logging
 import contextlib
 from typing import List, Optional, Set
@@ -19,7 +20,13 @@ from api.utils.utils import _normalize_stock_code
 logger = logging.getLogger(__name__)
 
 # 请求间隔（秒），避免被东方财富限流
-REQUEST_INTERVAL = 0.3
+REQUEST_INTERVAL_MIN = 3.0
+REQUEST_INTERVAL_MAX = 5.0
+
+
+def _random_sleep():
+    """随机等待 3~5 秒，降低被限流风险"""
+    time.sleep(random.uniform(REQUEST_INTERVAL_MIN, REQUEST_INTERVAL_MAX))
 
 
 @contextlib.contextmanager
@@ -149,7 +156,7 @@ class AkShareDataFetcher(DataFetcher):
                     if df is not None and not df.empty:
                         self._save_stock_data(symbol, df)
                         fetched = True
-                    time.sleep(REQUEST_INTERVAL)
+                    _random_sleep()
 
                 if fetched:
                     success_count += 1
@@ -181,6 +188,7 @@ class AkShareDataFetcher(DataFetcher):
         last_err = None
         for attempt in range(max_retries):
             try:
+                _random_sleep()
                 with _no_proxy():
                     df = self.ak.stock_zh_a_hist(
                         symbol=symbol,
@@ -241,7 +249,7 @@ class AkShareDataFetcher(DataFetcher):
                 print(f"  分段 [{chunk_start_str}~{chunk_end_str}] 失败: {e}")
 
             cursor = chunk_end + timedelta(days=1)
-            time.sleep(REQUEST_INTERVAL)
+            _random_sleep()
 
         if not chunks:
             return None
