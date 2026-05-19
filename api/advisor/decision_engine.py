@@ -10,11 +10,12 @@ import pandas as pd
 
 from api.config import settings
 from api.advisor.cooldown import load_closed_trades, compute_cooldown_state
-from api.advisor.decision_schema import Decision, ActionItem, HoldingInfo
+from api.advisor.decision_schema import Decision, ActionItem, HoldingInfo, RiskInfo
 from api.advisor.position_state import replay_state
 from api.portfolio.rules import (
     Position, calc_sell_signal, load_csv, get_bar, get_history_until,
     market_allow_buy, market_is_strong, INDEX_DEFAULT,
+    _yellow_series, T3_HOLD_DAYS, T3_MIN_GAIN_PCT,
 )
 from api.schemas.kline_constants import KLineConstants
 
@@ -84,6 +85,12 @@ def run_decision(date: str) -> Decision:
                                 f"{p['symbol']} 今日收盘跳变 {jump:.1f}%，请检查除权除息后的 cost_price"
                             )
 
+    # 判断是否有当天最新数据（盘后）
+    has_latest_data = False
+    if index_df is not None:
+        today_bar = get_bar(index_df, date)
+        has_latest_data = today_bar is not None
+
     next_td = _compute_next_trading_date(date)
     decision = Decision(
         date=date,
@@ -93,6 +100,7 @@ def run_decision(date: str) -> Decision:
         holdings=holdings_info,
         actions=actions,
         warnings=warnings,
+        has_latest_data=has_latest_data,
     )
 
     _save_decision(decision)
@@ -179,11 +187,15 @@ def _evaluate_one_holding(p: dict, date: str, market: dict):
     cur_close = float(bar[KLineConstants.CLOSE]) if bar is not None else pos.cost_price
     profit_pct = (cur_close - pos.cost_price) / pos.cost_price * 100
 
+    # 计算风险信息
+    risk = _compute_risk(pos, df, date, cur_close, profit_pct, market.get("is_strong", True))
+
     holding = HoldingInfo(
         symbol=symbol, name=name, shares=pos.shares,
         cost_price=pos.cost_price, current_close=round(cur_close, 2),
         profit_pct=round(profit_pct, 2), hold_days=pos.hold_days,
         tp_level_done=pos.tp_level_done, above_white_once=pos.above_white_once,
+        risk=risk,
     )
 
     if reason:
@@ -198,6 +210,59 @@ def _evaluate_one_holding(p: dict, date: str, market: dict):
                             reason="持仓中且无卖出信号")
 
     return pos, holding, action
+
+
+def _compute_risk(pos: Position, df: pd.DataFrame, date: str,
+                  cur_close: float, profit_pct: float, market_strong: bool) -> RiskInfo:
+    """计算持仓风险信息"""
+    risk = RiskInfo()
+    notes = []
+
+    # 硬止损距离
+    stop_pct = -7.0 if market_strong else -4.0
+    risk.stop_loss_distance = round(profit_pct - stop_pct, 2)
+    if risk.stop_loss_distance < 2.0:
+        notes.append(f"距硬止损仅 {risk.stop_loss_distance:.1f}%")
+
+    # 大哥黄距离
+    hist = get_history_until(df, date)
+    if len(hist) >= 30:
+        closes = hist[KLineConstants.CLOSE].values.astype(float)
+        yellow = _yellow_series(closes)
+        cur_yellow = float(yellow[-1])
+        if cur_yellow > 0:
+            risk.yellow_distance = round((cur_close / cur_yellow - 1) * 100, 2)
+            if risk.yellow_distance < 2.0:
+                notes.append(f"距大哥黄仅 {risk.yellow_distance:.1f}%")
+
+    # T+3 倒计时
+    risk.t3_countdown = max(0, T3_HOLD_DAYS - pos.hold_days)
+    risk.t3_profit = round(profit_pct, 2)
+    if risk.t3_countdown == 0 and profit_pct < T3_MIN_GAIN_PCT:
+        notes.append(f"T+3 已到期且涨幅不足 {T3_MIN_GAIN_PCT}%（当前 {profit_pct:+.2f}%）")
+    elif risk.t3_countdown <= 1 and profit_pct < T3_MIN_GAIN_PCT:
+        notes.append(f"T+3 倒计时 {risk.t3_countdown} 天，涨幅 {profit_pct:+.2f}% 不足")
+
+    # 趋势白判断
+    if pos.above_white_once:
+        import numpy as np
+        closes_arr = hist[KLineConstants.CLOSE].values.astype(float)
+        white = pd.Series(closes_arr).ewm(span=10, adjust=False).mean().ewm(span=10, adjust=False).mean().values
+        cur_white = float(white[-1])
+        white_dist = (cur_close / cur_white - 1) * 100 if cur_white > 0 else 0
+        if white_dist < 1.0:
+            notes.append(f"曾上穿趋势白，当前距趋势白仅 {white_dist:.1f}%，跌破即卖")
+
+    # 综合风险等级
+    if any("硬止损" in n or "T+3 已到期" in n for n in notes):
+        risk.risk_level = "high"
+    elif len(notes) >= 2 or any("倒计时" in n or "大哥黄" in n for n in notes):
+        risk.risk_level = "medium"
+    else:
+        risk.risk_level = "low"
+
+    risk.risk_notes = notes
+    return risk
 
 
 def _scan_buy_candidates(date: str, slots_left: int, total_capital: float,
@@ -255,6 +320,16 @@ def _compute_next_trading_date(date: str) -> str:
     return (datetime.strptime(date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
 
 
+def _serialize_holding(h):
+    """序列化 HoldingInfo（嵌套 RiskInfo 也要展开）"""
+    if not hasattr(h, '__dict__'):
+        return h
+    d = vars(h).copy()
+    if "risk" in d and hasattr(d["risk"], '__dict__'):
+        d["risk"] = vars(d["risk"]).copy()
+    return d
+
+
 def _save_decision(decision: Decision):
     """原子写 decision JSON"""
     os.makedirs(settings.DECISIONS_DIR, exist_ok=True)
@@ -266,9 +341,10 @@ def _save_decision(decision: Decision):
         "next_trading_date": decision.next_trading_date,
         "market": decision.market,
         "cooldown": decision.cooldown,
-        "holdings": [vars(h) if hasattr(h, '__dict__') else h for h in decision.holdings],
+        "holdings": [_serialize_holding(h) for h in decision.holdings],
         "actions": [vars(a) if hasattr(a, '__dict__') else a for a in decision.actions],
         "warnings": decision.warnings,
+        "has_latest_data": decision.has_latest_data,
     }
 
     tmp_fd, tmp_path = tempfile.mkstemp(dir=settings.DECISIONS_DIR, suffix=".tmp")

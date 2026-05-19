@@ -17,6 +17,17 @@ class ActionItem:
 
 
 @dataclass
+class RiskInfo:
+    """持仓风险分析"""
+    stop_loss_distance: float = 0.0  # 距离硬止损百分比（正数=安全距离）
+    yellow_distance: float = 0.0     # 距离大哥黄百分比（正数=在上方）
+    t3_countdown: int = 0            # T+3 倒计时（0=已满3天）
+    t3_profit: float = 0.0           # 当前涨幅（T+3 判定用）
+    risk_level: str = ""             # low / medium / high
+    risk_notes: list = field(default_factory=list)  # 风险提示列表
+
+
+@dataclass
 class HoldingInfo:
     symbol: str
     name: str
@@ -27,6 +38,7 @@ class HoldingInfo:
     hold_days: int
     tp_level_done: int
     above_white_once: bool
+    risk: RiskInfo = field(default_factory=RiskInfo)
 
 
 @dataclass
@@ -38,3 +50,4 @@ class Decision:
     holdings: list = field(default_factory=list)
     actions: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    has_latest_data: bool = False  # 是否有决策日当天的最新数据

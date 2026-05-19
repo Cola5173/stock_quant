@@ -257,37 +257,86 @@ export function LiveTradingPage() {
 
       </Section>
 
-      {/* 明日动作 */}
-      <Section title="明日动作">
-        {actions.length === 0 ? (
-          <p className="text-zinc-500 text-sm">无动作</p>
-        ) : (
+      {/* 今日持仓分析（基于已有数据） */}
+      {holdings.length > 0 && (
+        <Section title="今日持仓分析">
           <div className="space-y-2">
-            {actions.map((a, i) => (
-              <div key={i} className={`rounded-lg border p-3 ${ACTION_COLORS[a.kind as string] ?? "bg-zinc-800/60 border-zinc-700"}`}>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-bold uppercase text-zinc-100">
-                    {ACTION_LABELS[a.kind as string] ?? String(a.kind)}
-                  </span>
-                  {Boolean(a.symbol) && (
-                    <span className="text-sm text-zinc-300">{String(a.symbol)} {String(a.name ?? "")}</span>
+            {holdings.map((h, i) => {
+              const risk = (h.risk ?? {}) as Record<string, unknown>;
+              const level = String(risk.risk_level ?? "low");
+              const notes = (risk.risk_notes ?? []) as string[];
+              const levelColor = level === "high" ? "border-red-700 bg-red-900/30"
+                : level === "medium" ? "border-amber-700 bg-amber-900/20"
+                : "border-zinc-700 bg-zinc-800/40";
+              const levelLabel = level === "high" ? "高风险" : level === "medium" ? "中风险" : "低风险";
+              const levelTextColor = level === "high" ? "text-red-300" : level === "medium" ? "text-amber-300" : "text-zinc-400";
+              return (
+                <div key={i} className={`rounded-lg border p-3 ${levelColor}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-xs font-bold ${levelTextColor}`}>{levelLabel}</span>
+                    <span className="text-sm text-zinc-300">{String(h.symbol)} {String(h.name ?? "")}</span>
+                    <span className="text-xs text-zinc-500 ml-auto">
+                      浮盈 <span className={Number(h.profit_pct) >= 0 ? "text-green-400" : "text-red-400"}>
+                        {Number(h.profit_pct) >= 0 ? "+" : ""}{Number(h.profit_pct).toFixed(2)}%
+                      </span>
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs text-zinc-500 mt-2">
+                    <span>距硬止损 {Number(risk.stop_loss_distance).toFixed(1)}%</span>
+                    <span>距大哥黄 {Number(risk.yellow_distance).toFixed(1)}%</span>
+                    <span>T+3 倒计时 {Number(risk.t3_countdown)} 天</span>
+                  </div>
+                  {notes.length > 0 && (
+                    <ul className="mt-2 space-y-0.5">
+                      {notes.map((n, j) => (
+                        <li key={j} className="text-xs text-amber-300">⚠ {n}</li>
+                      ))}
+                    </ul>
                   )}
                 </div>
-                {Boolean(a.reason) && <p className="text-xs text-zinc-400">{String(a.reason)}</p>}
-                {Boolean(a.exec_desc) && <p className="text-xs text-zinc-500 mt-1">{String(a.exec_desc)}</p>}
-                {(a.kind === "buy") && (
-                  <p className="text-xs text-zinc-400 mt-1">
-                    ≈{String(a.estimated_shares)}股 · 金额 {Number(a.amount).toLocaleString()}
-                  </p>
-                )}
-                {(a.kind === "sell") && Boolean(a.shares) && (
-                  <p className="text-xs text-zinc-400 mt-1">{String(a.shares)}股</p>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
-        )}
-      </Section>
+        </Section>
+      )}
+
+      {/* 明日建议（仅在有最新数据时显示） */}
+      {decision && (
+        <Section title={
+          (decision as Record<string, unknown>).has_latest_data
+            ? `明日建议（基于 ${decisionDate} 收盘数据）`
+            : "明日建议（数据未更新，仅参考）"
+        }>
+          {actions.length === 0 ? (
+            <p className="text-zinc-500 text-sm">无动作</p>
+          ) : (
+            <div className="space-y-2">
+              {actions.map((a, i) => (
+                <div key={i} className={`rounded-lg border p-3 ${ACTION_COLORS[a.kind as string] ?? "bg-zinc-800/60 border-zinc-700"}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-bold uppercase text-zinc-100">
+                      {ACTION_LABELS[a.kind as string] ?? String(a.kind)}
+                    </span>
+                    {Boolean(a.symbol) && (
+                      <span className="text-sm text-zinc-300">{String(a.symbol)} {String(a.name ?? "")}</span>
+                    )}
+                  </div>
+                  {Boolean(a.reason) && <p className="text-xs text-zinc-400">{String(a.reason)}</p>}
+                  {Boolean(a.exec_desc) && <p className="text-xs text-zinc-500 mt-1">{String(a.exec_desc)}</p>}
+                  {(a.kind === "buy") && (
+                    <p className="text-xs text-zinc-400 mt-1">
+                      ≈{String(a.estimated_shares)}股 · 金额 {Number(a.amount).toLocaleString()}
+                    </p>
+                  )}
+                  {(a.kind === "sell") && Boolean(a.shares) && (
+                    <p className="text-xs text-zinc-400 mt-1">{String(a.shares)}股</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+      )}
 
       {/* 警告 */}
       {warnings.length > 0 && (

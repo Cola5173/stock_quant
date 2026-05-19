@@ -38,15 +38,16 @@ def trigger_decision(date: str = None):
     if not date:
         date = datetime.now().strftime("%Y-%m-%d")
     decision = run_decision(date)
-    # 转为 dict 返回
+    from api.advisor.decision_engine import _serialize_holding
     return {
         "date": decision.date,
         "next_trading_date": decision.next_trading_date,
         "market": decision.market,
         "cooldown": decision.cooldown,
-        "holdings": [vars(h) if hasattr(h, '__dict__') else h for h in decision.holdings],
+        "holdings": [_serialize_holding(h) for h in decision.holdings],
         "actions": [vars(a) if hasattr(a, '__dict__') else a for a in decision.actions],
         "warnings": decision.warnings,
+        "has_latest_data": decision.has_latest_data,
     }
 
 
