@@ -255,6 +255,9 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`text-xs font-bold ${levelTextColor}`}>{levelLabel}</span>
                     <span className="text-sm text-zinc-300">{String(h.symbol)} {String(h.name ?? "")}</span>
+                    {Number(risk.yellow_distance) < 2 && (
+                      <span className="text-xs text-amber-300">⚠ 距大哥黄 {Number(risk.yellow_distance).toFixed(1)}%</span>
+                    )}
                     <span className="text-xs text-zinc-500 ml-auto">
                       持仓 {Number(h.hold_days ?? 0)} 天 · 现价 {Number(h.current_close ?? 0).toFixed(2)}
                     </span>
@@ -268,9 +271,9 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
                     <span>距大哥黄 {Number(risk.yellow_distance).toFixed(1)}%</span>
                     <span>当前涨幅 <span className={profitPct >= 0 ? "text-green-400" : "text-red-400"}>{profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}%</span></span>
                   </div>
-                  {notes.length > 0 && (
+                  {notes.filter((n) => !n.includes("大哥黄")).length > 0 && (
                     <ul className="mt-2 space-y-0.5">
-                      {notes.map((n, j) => (
+                      {notes.filter((n) => !n.includes("大哥黄")).map((n, j) => (
                         <li key={j} className="text-xs text-amber-300">⚠ {n}</li>
                       ))}
                     </ul>
