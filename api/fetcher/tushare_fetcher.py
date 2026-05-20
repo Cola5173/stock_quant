@@ -175,18 +175,62 @@ class TushareDataFetcher(DataFetcher):
         with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
             futures = [pool.submit(worker, code) for code in sorted(stock_codes, key=_normalize_stock_code)]
             for fut in as_completed(futures):
-                pass  # 异常已在 worker 内处理
+                pass
 
-        logger.info(f"下载完成！成功 {counters['success']}  跳过 {counters['skipped']}  失败 {counters['failed']}")
+        logger.info(f"首轮完成：成功 {counters['success']}  跳过 {counters['skipped']}  失败 {counters['failed']}")
+
+        # 对失败标的进行最多 5 轮重试
+        max_retry_rounds = 5
+        for retry_round in range(1, max_retry_rounds + 1):
+            if not failures:
+                break
+            retry_symbols = [f["symbol"] for f in failures]
+            logger.info(f"第 {retry_round} 轮重试：{len(retry_symbols)} 只失败标的")
+            failures = []
+            retry_done = 0
+
+            def retry_worker(stock_code: str):
+                nonlocal retry_done
+                symbol = _normalize_stock_code(stock_code)
+                try:
+                    result = self._fetch_one_incremental(symbol, ts_start, ts_end)
+                    with counter_lock:
+                        retry_done += 1
+                        if result == "success":
+                            counters["success"] += 1
+                            counters["failed"] -= 1
+                        elif result == "skipped":
+                            counters["skipped"] += 1
+                            counters["failed"] -= 1
+                        else:
+                            failures.append(result)
+                except Exception as e:
+                    with counter_lock:
+                        retry_done += 1
+                        failures.append({
+                            "symbol": symbol,
+                            "reason": f"{type(e).__name__}: {e}",
+                            "ranges": [f"{ts_start}-{ts_end}"],
+                        })
+
+            time.sleep(2)  # 重试前等一下，让代理恢复
+            with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+                futs = [pool.submit(retry_worker, s) for s in retry_symbols]
+                for fut in as_completed(futs):
+                    pass
+
+            logger.info(f"第 {retry_round} 轮重试完成：剩余失败 {len(failures)}")
+
+        logger.info(f"最终结果：成功 {counters['success']}  跳过 {counters['skipped']}  失败 {len(failures)}")
 
         fail_log_path = None
         if failures:
             fail_log_path = self._dump_failures(failures, start_date, end_date)
-            logger.info(f"失败明细: {fail_log_path}")
+            logger.info(f"最终失败明细: {fail_log_path}")
 
         return {
             "success": counters["success"],
-            "failed": counters["failed"],
+            "failed": len(failures),
             "skipped": counters["skipped"],
             "fail_log_path": fail_log_path,
             "failures": failures,
