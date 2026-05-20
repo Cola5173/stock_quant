@@ -49,6 +49,13 @@ INDEX_MAP = {
     "00": "idx_399001_SZ",
 }
 
+# B2 限价单入场参数（"洗盘到攻击性阳线一半位置"）
+# 目标价 = B2_open + (B2_close - B2_open) * (1 - ENTRY_TARGET_RATIO)
+#   ratio=0.5 → 阳线中点；ratio=0.6 → 更深回踩；ratio=0.4 → 更浅
+# 参数扫描最优：ratio=0.4 wait=2（收益 +16.44%，胜率 70.37%，回撤 -6.66%）
+ENTRY_TARGET_RATIO = 0.4
+ENTRY_WAIT_DAYS = 2      # T+1 起算 N 个交易日内未触发即放弃
+
 # === 小资金参数（与 B1SmallStrategy 对齐）===
 MAX_PRICE = B1SmallStrategy.max_price
 T5_HOLD_DAYS = B1SmallStrategy.time_stop_days
@@ -317,6 +324,8 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
     consecutive_losses = 0
     cooldown_until = -1
     stock_cooldown: dict[str, int] = {}
+    # 限价挂单池：key=symbol, value={target_price, expires_at_idx, scan_date, score}
+    pending_orders: dict[str, dict] = {}
     t0 = datetime.now()
 
     pool = ProcessPoolExecutor(max_workers=workers)
@@ -326,6 +335,56 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
 
         market_ok = market_allow_buy(today, INDEX_DEFAULT, index_dfs)
         market_strong = market_is_strong(today, INDEX_DEFAULT, index_dfs)
+
+        # ===== 0. 撮合 pending_orders（次日 next_day 是检查日；
+        #         当 next_day 的 low ≤ target ≤ high 时按 target 成交）=====
+        per_pos_cap = capital * (0.50 if market_strong else 0.40)
+        max_slots_now = 2 if market_strong else 1
+        for sym, order in list(pending_orders.items()):
+            if i + 1 > order["expires_at_idx"]:
+                del pending_orders[sym]
+                continue
+            if sym in positions:
+                del pending_orders[sym]
+                continue
+            if len(positions) >= max_slots_now:
+                continue
+            df = load_csv(sym)
+            bar_match = get_bar(df, next_day)
+            if bar_match is None:
+                continue
+            low = float(bar_match[KLineConstants.LOW])
+            high = float(bar_match[KLineConstants.HIGH])
+            target = order["target_price"]
+            if not (low <= target <= high):
+                continue
+            buy_price = target * (1 + SLIPPAGE)
+            if buy_price <= 0 or buy_price > MAX_PRICE:
+                del pending_orders[sym]
+                continue
+            slots_left = max_slots_now - len(positions)
+            budget = min(per_pos_cap, cash / max(1, slots_left))
+            shares = int(budget / buy_price // 100) * 100
+            if shares <= 0:
+                continue
+            cost = shares * buy_price
+            fee = buy_fee(shares, buy_price)
+            if cash < cost + fee:
+                continue
+            cash -= (cost + fee)
+            bar_scan = get_bar(df, order["scan_date"])
+            buy_day_low = float(bar_scan[KLineConstants.LOW]) if bar_scan is not None else buy_price
+            positions[sym] = Position(
+                symbol=sym,
+                name=name_map.get(sym, sym),
+                shares=shares,
+                cost_price=buy_price,
+                buy_date=next_day,
+                buy_day_low=buy_day_low,
+                scan_date=order["scan_date"],
+                initial_shares=shares,
+            )
+            del pending_orders[sym]
 
         # ===== 1. 检查持仓的卖出信号 =====
         sells_today = []
@@ -373,16 +432,16 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
                 else:
                     consecutive_losses = 0
 
-        # ===== 3. 买入：强市最多 2 只(50%)，弱市最多 1 只(40%) =====
+        # ===== 3. B2 选股 → 挂限价单到 B2 阳线中点（不直接 T+1 开盘买）=====
         max_slots = 2 if market_strong else 1
         in_cooldown = i < cooldown_until
-        slots = max_slots - len(positions)
+        slots = max_slots - len(positions) - len(pending_orders)
         if slots > 0 and market_ok and not in_cooldown:
             tasks = [(s, today) for s in symbols]
             hits = []
             for fut in as_completed({pool.submit(_scan_worker, t): t for t in tasks}):
                 r = fut.result()
-                if r and r["symbol"] not in positions:
+                if r and r["symbol"] not in positions and r["symbol"] not in pending_orders:
                     sym = r["symbol"]
                     if stock_cooldown.get(sym, -1) > i:
                         continue
@@ -390,38 +449,24 @@ def run_backtest(start_date: str, end_date: str, capital: float, workers: int) -
             hits.sort(key=lambda x: -x["score"])
             top = hits[:slots]
 
-            if top:
-                per_pos_cap = capital * (0.50 if market_strong else 0.40)
-                for cand in top:
-                    sym = cand["symbol"]
-                    df = load_csv(sym)
-                    bar_next = get_bar(df, next_day)
-                    if bar_next is None:
-                        continue
-                    buy_price = float(bar_next[KLineConstants.OPEN]) * (1 + SLIPPAGE)
-                    if buy_price <= 0 or buy_price > MAX_PRICE:
-                        continue
-                    budget = min(per_pos_cap, cash / max(1, len(top)))
-                    shares = int(budget / buy_price // 100) * 100
-                    if shares <= 0:
-                        continue
-                    cost = shares * buy_price
-                    fee = buy_fee(shares, buy_price)
-                    if cash < cost + fee:
-                        continue
-                    cash -= (cost + fee)
-                    bar_today = get_bar(df, today)
-                    buy_day_low = float(bar_today[KLineConstants.LOW]) if bar_today is not None else buy_price
-                    positions[sym] = Position(
-                        symbol=sym,
-                        name=name_map.get(sym, sym),
-                        shares=shares,
-                        cost_price=buy_price,
-                        buy_date=next_day,
-                        buy_day_low=buy_day_low,
-                        scan_date=today,
-                        initial_shares=shares,
-                    )
+            for cand in top:
+                sym = cand["symbol"]
+                df = load_csv(sym)
+                bar_today = get_bar(df, today)
+                if bar_today is None:
+                    continue
+                b2_open = float(bar_today[KLineConstants.OPEN])
+                b2_close = float(bar_today[KLineConstants.CLOSE])
+                if b2_open <= 0 or b2_close <= b2_open:
+                    continue
+                # 目标价 = 阳线 (1 - ratio) 处（ratio=0.5 → 中点）
+                target_price = b2_open + (b2_close - b2_open) * (1 - ENTRY_TARGET_RATIO)
+                pending_orders[sym] = {
+                    "target_price": target_price,
+                    "expires_at_idx": i + ENTRY_WAIT_DAYS,
+                    "scan_date": today,
+                    "score": cand["score"],
+                }
         elif slots > 0 and not market_ok:
             skipped_market_days += 1
 
