@@ -284,7 +284,7 @@ class TushareDataFetcher(DataFetcher):
         import json
         fail_dir = os.path.join(settings.OUTPUT_DIR, "download_k_fail")
         os.makedirs(fail_dir, exist_ok=True)
-        fname = datetime.now().strftime("%Y-%m-%d") + ".json"
+        fname = (end_date or datetime.now().strftime("%Y-%m-%d")) + ".json"
         path = os.path.join(fail_dir, fname)
         payload = {
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
