@@ -29,6 +29,26 @@ logger = logging.getLogger(__name__)
 DEFAULT_TOTAL_CAPITAL = 200000
 
 _lock = threading.Lock()
+_name_map: Optional[Dict[str, str]] = None
+
+
+def _get_name_map() -> Dict[str, str]:
+    """加载 stock_names.csv → {symbol: name} 映射（懒加载 + 缓存）"""
+    global _name_map
+    if _name_map is not None:
+        return _name_map
+    csv_path = os.path.join(settings.PROJECT_ROOT, "api", "resource", "stock_names.csv")
+    if not os.path.exists(csv_path):
+        _name_map = {}
+        return _name_map
+    try:
+        import pandas as pd
+        df = pd.read_csv(csv_path, dtype={"symbol": str})
+        _name_map = dict(zip(df["symbol"].astype(str).str.strip(),
+                             df["name"].astype(str).str.strip()))
+    except Exception:
+        _name_map = {}
+    return _name_map
 
 
 def _empty_state() -> dict:
@@ -195,7 +215,7 @@ def add_transaction(tx: dict) -> dict:
         "id": str(uuid.uuid4())[:8],
         "type": kind,
         "symbol": symbol,
-        "name": tx.get("name") or symbol,
+        "name": tx.get("name") or _get_name_map().get(symbol, symbol),
         "shares": shares,
         "price": round(price, 4),
         "trade_date": trade_date,
