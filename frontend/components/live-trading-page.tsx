@@ -262,12 +262,10 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
                       持仓 {Number(h.hold_days ?? 0)} 天 · 现价 {Number(h.current_close ?? 0).toFixed(2)}
                     </span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-xs text-zinc-500 mt-2">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 mt-2">
                     <span>距止损 <span className={Number(risk.stop_loss_distance) < 3 ? "text-red-400 font-medium" : "text-zinc-300"}>{Number(risk.stop_loss_distance).toFixed(1)}%</span></span>
                     <span>距止盈 <span className={distToTp !== null && Number(distToTp) < 2 ? "text-green-400 font-medium" : "text-zinc-300"}>{distToTp !== null ? `${distToTp}%（+${nextTp}%）` : "已完成"}</span></span>
                     <span>T+5 倒计时 <span className={Number(risk.t3_countdown) <= 1 ? "text-amber-400 font-medium" : "text-zinc-300"}>{Number(risk.t3_countdown)} 天</span></span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-zinc-500 mt-1">
                     <span>距大哥黄 {Number(risk.yellow_distance).toFixed(1)}%</span>
                     <span>当前涨幅 <span className={profitPct >= 0 ? "text-green-400" : "text-red-400"}>{profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}%</span></span>
                   </div>
