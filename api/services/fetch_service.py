@@ -149,12 +149,12 @@ def _run_fetch(source: str, target_date):
 
         logger.info(f"开始拉取数据：source={source}, 区间 {start} ~ {end}（目标交易日 {target_str}）")
 
-        # 1) 拉个股
+        # 1) 先拉指数（决策引擎依赖指数判断 has_latest_data / 大盘状态）
+        _fetch_indices(start, end)
+
+        # 2) 再拉个股
         fetcher = _create_fetcher(source)
         fetcher.fetch(start_date=start, end_date=end)
-
-        # 2) 拉指数（始终使用 tushare）
-        _fetch_indices(start, end)
 
         with _lock:
             _state["last_target_date"] = target_str
