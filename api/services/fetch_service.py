@@ -73,20 +73,8 @@ def start_fetch_latest(source: str = "akshare") -> dict:
             "source": running_source,
         }
 
-    # 2) 已持锁 — 任何提前返回都必须释放
+    # 2) 已持锁 — 启动后台拉取（每个个股/指数内部自行判断是否需要增量）
     try:
-        if _is_market_up_to_date(target_str):
-            with _lock:
-                _state["last_target_date"] = target_str
-            logger.info(f"市场已是最新（目标 {target_str}），跳过拉取，立即释放锁")
-            _fetch_lock.release()
-            return {
-                "started": False,
-                "reason": "up_to_date",
-                "target_date": target_str,
-                "source": source,
-            }
-
         with _lock:
             _state.update({
                 "running": True,
@@ -96,7 +84,6 @@ def start_fetch_latest(source: str = "akshare") -> dict:
                 "error": None,
             })
 
-        # 后台线程负责在 finally 中释放 _fetch_lock
         thread = threading.Thread(target=_run_fetch, args=(source, target_date), daemon=True)
         thread.start()
         logger.info(f"拉取任务已启动（source={source}, target={target_str}），锁由后台线程持有")
@@ -107,28 +94,8 @@ def start_fetch_latest(source: str = "akshare") -> dict:
             "source": source,
         }
     except Exception:
-        # 同步阶段任何异常都要释放锁，避免死锁
         _fetch_lock.release()
         raise
-
-
-def _is_market_up_to_date(target_date_str: str) -> bool:
-    """
-    用标杆股（000001）的本地 CSV 最新日期判断全市场是否已是最新。
-    命中则跳过整个拉取流程；未命中则正常走单股增量逻辑。
-    """
-    csv_path = os.path.join(settings.DATA_DIR, f"{BENCHMARK_STOCK}.csv")
-    if not os.path.exists(csv_path):
-        return False
-    try:
-        df = pd.read_csv(csv_path, parse_dates=["date"])
-        if df.empty:
-            return False
-        local_max = df["date"].max().strftime("%Y-%m-%d")
-        return local_max >= target_date_str
-    except Exception as e:
-        logger.debug(f"标杆股 {BENCHMARK_STOCK} 短路检查失败（忽略）: {e}")
-        return False
 
 
 def _run_fetch(source: str, target_date):
@@ -138,21 +105,12 @@ def _run_fetch(source: str, target_date):
         start = (target_date - timedelta(days=7)).strftime("%Y-%m-%d")
         end = target_str
 
-        # 双重保险：进入后台后再检查一次（防止两次触发抢跑）
-        if _is_market_up_to_date(target_str):
-            logger.info(
-                f"市场已是最新（标杆股 {BENCHMARK_STOCK} 本地数据 ≥ {target_str}），跳过本次拉取"
-            )
-            with _lock:
-                _state["last_target_date"] = target_str
-            return
-
         logger.info(f"开始拉取数据：source={source}, 区间 {start} ~ {end}（目标交易日 {target_str}）")
 
         # 1) 先拉指数（决策引擎依赖指数判断 has_latest_data / 大盘状态）
         _fetch_indices(start, end)
 
-        # 2) 再拉个股
+        # 2) 再拉个股（每只内部自行判断是否需要增量，已有最新的自动 skip）
         fetcher = _create_fetcher(source)
         fetcher.fetch(start_date=start, end_date=end)
 
