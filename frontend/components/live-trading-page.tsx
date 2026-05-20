@@ -596,7 +596,7 @@ function TransactionLogModal({ onClose }: { onClose: () => void }) {
         ) : (
           <div className="space-y-2">
             <div className="grid grid-cols-[60px_80px_1fr_80px_100px_80px_60px] gap-2 text-xs text-zinc-500 px-2">
-              <span>类型</span><span>代码</span><span>名称</span><span>股数</span><span>成本价</span><span>交易日期</span><span></span>
+              <span>类型</span><span>代码</span><span>名称</span><span className="text-right">股数</span><span className="text-right">成本价</span><span>交易日期</span><span></span>
             </div>
             {sorted.map((tx) => {
               const kind = String(tx.type ?? "B");
