@@ -203,7 +203,7 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
           ) : (
             <div className="space-y-2">
               <div className="grid grid-cols-[1.2fr_0.6fr_0.8fr_0.8fr_1fr] gap-2 text-xs text-zinc-500 px-2">
-                <span>代码</span><span>仓位</span><span>股数</span><span>成本价</span><span>买入日期</span>
+                <span>代码</span><span className="text-center">仓位</span><span className="text-center">股数</span><span className="text-center">成本价</span><span>买入日期</span>
               </div>
               {positions.map((p, i) => {
                 const holdingInfo = holdings.find((h) => h.symbol === p.symbol);
