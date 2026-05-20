@@ -352,7 +352,7 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
       )}
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 px-6 py-4 rounded-lg shadow-lg text-sm ${
+        <div className={`fixed top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 px-8 py-5 rounded-xl shadow-2xl text-base font-medium ${
           toast.type === "success"
             ? "bg-green-900/90 border border-green-700 text-green-200"
             : "bg-red-900/90 border border-red-700 text-red-200"
