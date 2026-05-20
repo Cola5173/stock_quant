@@ -4,12 +4,12 @@ transactions.json 是唯一真相，positions.json 由交易流水派生。
 
 数据模型：
 - transactions.json: { total_capital, transactions: [...] }
-- transaction: { id, type: "B"|"S", symbol, name, shares, total_amount, trade_date, created_at }
-  - total_amount: 用户手填的总成交价（已含交易费用）
-  - 成本价 = total_amount / shares（买入）
+- transaction: { id, type: "B"|"S", symbol, name, shares, price, trade_date, created_at }
+  - price: 成本价（不含税费）
+  - 买入时：cost_price = price；卖出时：price 是卖出价
 
 派生持仓（按 symbol 加权平均）：
-- 买入 B: shares += b.shares, cost_total += b.total_amount, buy_date = 首次未清仓的买入日
+- 买入 B: shares += b.shares, cost_total += b.price * b.shares, buy_date = 首次未清仓的买入日
 - 卖出 S: cost_total 按比例扣减；shares -= s.shares
 - shares == 0 → 该 symbol 从持仓清出（包括 buy_date 重置）
 """
@@ -90,8 +90,8 @@ def derive_positions(transactions: List[dict]) -> List[dict]:
             continue
         kind = tx.get("type", "B").upper()
         shares = int(tx.get("shares") or 0)
-        amount = float(tx.get("total_amount") or 0.0)
-        if shares <= 0 or amount < 0:
+        price = float(tx.get("price") or 0.0)
+        if shares <= 0 or price <= 0:
             continue
 
         s = state.setdefault(sym, {
@@ -110,7 +110,7 @@ def derive_positions(transactions: List[dict]) -> List[dict]:
                 # 重新建仓：buy_date 取这笔
                 s["buy_date"] = tx.get("trade_date", "")
             s["shares"] += shares
-            s["cost_total"] += amount
+            s["cost_total"] += price * shares
         elif kind == "S":
             if s["shares"] <= 0:
                 logger.warning(f"卖出 {sym} 但当前无持仓，忽略")
@@ -171,7 +171,7 @@ def set_total_capital(value: float) -> dict:
 
 def add_transaction(tx: dict) -> dict:
     """追加一笔交易；自动生成 id 与 created_at；同步派生 positions。
-    必填字段：type(B/S), symbol, shares, total_amount, trade_date
+    必填字段：type(B/S), symbol, shares, price, trade_date
     """
     kind = (tx.get("type") or "").upper()
     if kind not in ("B", "S"):
@@ -182,9 +182,9 @@ def add_transaction(tx: dict) -> dict:
     shares = int(tx.get("shares") or 0)
     if shares <= 0:
         raise ValueError("shares 必须 > 0")
-    amount = float(tx.get("total_amount") or 0)
-    if amount <= 0:
-        raise ValueError("total_amount 必须 > 0")
+    price = float(tx.get("price") or 0)
+    if price <= 0:
+        raise ValueError("price 必须 > 0")
     trade_date = tx.get("trade_date") or ""
     try:
         datetime.strptime(trade_date, "%Y-%m-%d")
@@ -197,7 +197,7 @@ def add_transaction(tx: dict) -> dict:
         "symbol": symbol,
         "name": tx.get("name") or symbol,
         "shares": shares,
-        "total_amount": round(amount, 2),
+        "price": round(price, 4),
         "trade_date": trade_date,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }

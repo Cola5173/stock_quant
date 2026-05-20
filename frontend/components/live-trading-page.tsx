@@ -457,7 +457,7 @@ function AddTransactionModal({
   const [type, setType] = useState<"B" | "S">("B");
   const [symbol, setSymbol] = useState("");
   const [shares, setShares] = useState(100);
-  const [totalAmount, setTotalAmount] = useState(1000);
+  const [price, setPrice] = useState(10);
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().slice(0, 10));
   const [error, setError] = useState("");
 
@@ -470,15 +470,15 @@ function AddTransactionModal({
       setError("股数必须是 100 的整数倍且 > 0");
       return;
     }
-    if (totalAmount <= 0) {
-      setError("总成交价必须 > 0");
+    if (price <= 0) {
+      setError("成本价必须 > 0");
       return;
     }
     if (!tradeDate) {
       setError("请选择交易日期");
       return;
     }
-    onSubmit({ type, symbol, shares, total_amount: totalAmount, trade_date: tradeDate });
+    onSubmit({ type, symbol, shares, price, trade_date: tradeDate });
   };
 
   return (
@@ -522,10 +522,9 @@ function AddTransactionModal({
               className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500" />
           </div>
           <div>
-            <label className="text-xs text-zinc-500 mb-1.5 block">总成交价（含交易费用）</label>
-            <input type="number" step="0.01" value={totalAmount} onChange={(e) => setTotalAmount(Number(e.target.value))}
+            <label className="text-xs text-zinc-500 mb-1.5 block">成本价</label>
+            <input type="number" step="0.01" value={price} onChange={(e) => setPrice(Number(e.target.value))}
               className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500" />
-            <p className="text-xs text-zinc-600 mt-1">成本价 = 总成交价 / 股数 = {shares > 0 ? (totalAmount / shares).toFixed(4) : "-"}</p>
           </div>
           <div>
             <label className="text-xs text-zinc-500 mb-1.5 block">交易日期</label>
@@ -587,24 +586,22 @@ function TransactionLogModal({ onClose }: { onClose: () => void }) {
           <p className="text-zinc-500 text-sm">暂无交易记录</p>
         ) : (
           <div className="space-y-2">
-            <div className="grid grid-cols-[60px_80px_1fr_80px_100px_100px_80px_60px] gap-2 text-xs text-zinc-500 px-2">
-              <span>类型</span><span>代码</span><span>名称</span><span>股数</span><span>总成交价</span><span>成本价</span><span>交易日期</span><span></span>
+            <div className="grid grid-cols-[60px_80px_1fr_80px_100px_80px_60px] gap-2 text-xs text-zinc-500 px-2">
+              <span>类型</span><span>代码</span><span>名称</span><span>股数</span><span>成本价</span><span>交易日期</span><span></span>
             </div>
             {sorted.map((tx) => {
               const kind = String(tx.type ?? "B");
               const shares = Number(tx.shares ?? 0);
-              const amount = Number(tx.total_amount ?? 0);
-              const costPrice = shares > 0 ? amount / shares : 0;
+              const price = Number(tx.price ?? 0);
               return (
-                <div key={String(tx.id)} className="grid grid-cols-[60px_80px_1fr_80px_100px_100px_80px_60px] gap-2 items-center bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5">
+                <div key={String(tx.id)} className="grid grid-cols-[60px_80px_1fr_80px_100px_80px_60px] gap-2 items-center bg-zinc-950 border border-zinc-800 rounded-md px-2 py-1.5">
                   <span className={`text-xs font-medium ${kind === "B" ? "text-green-400" : "text-red-400"}`}>
                     {kind === "B" ? "买入" : "卖出"}
                   </span>
                   <span className="text-xs text-zinc-200">{String(tx.symbol ?? "")}</span>
                   <span className="text-xs text-zinc-400">{String(tx.name ?? "")}</span>
                   <span className="text-xs text-zinc-200 text-right">{shares}</span>
-                  <span className="text-xs text-zinc-200 text-right">{amount.toFixed(2)}</span>
-                  <span className="text-xs text-zinc-400 text-right">{costPrice.toFixed(4)}</span>
+                  <span className="text-xs text-zinc-200 text-right">{price.toFixed(4)}</span>
                   <span className="text-xs text-zinc-500">{String(tx.trade_date ?? "")}</span>
                   <button
                     onClick={() => {
