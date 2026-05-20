@@ -22,7 +22,7 @@ from api.utils.utils import _normalize_stock_code
 
 logger = logging.getLogger(__name__)
 
-REQUEST_INTERVAL = 0.15
+REQUEST_INTERVAL = 0.5
 FETCH_WORKERS = 4
 
 
@@ -265,7 +265,6 @@ class TushareDataFetcher(DataFetcher):
 
         for attempt in range(3):
             try:
-                # tushare 内部对空响应会 print 异常字符串，用 redirect_stdout 静默
                 with contextlib.redirect_stdout(io.StringIO()):
                     df = self.ts.pro_bar(
                         api=self.pro,
@@ -275,20 +274,24 @@ class TushareDataFetcher(DataFetcher):
                         end_date=end_date,
                         freq="D",
                     )
-                break
             except Exception as e:
                 msg = str(e)
-                if "每分钟最多访问该接口" in msg or "rate" in msg.lower():
+                if "每分钟最多访问该接口" in msg or "rate" in msg.lower() or "速度过快" in msg:
                     wait = 2 ** attempt + 1
                     logger.warning(f"{symbol} 触发限流，{wait}s 后重试: {msg}")
                     time.sleep(wait)
                     continue
                 logger.debug(f"{symbol} pro_bar 失败: {e}")
                 return None
-        else:
-            return None
 
-        if df is None or df.empty:
+            if df is not None and not df.empty:
+                break
+            # 返回空可能是限流（代理不报错直接返空），等一下重试
+            if attempt < 2:
+                time.sleep(1 + attempt)
+                continue
+            return None
+        else:
             return None
 
         df = df.rename(columns={
