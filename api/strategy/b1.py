@@ -48,6 +48,34 @@ from vnpy.trader.object import BarData
 from api.strategy.base_strategy import BaseStrategy
 
 
+def _apply_b1_env_overrides(cls):
+    """从环境变量覆盖 B1 类属性，便于 sweep 时通过 subprocess + env 传参。
+
+    支持的环境变量（前缀 B1_，全大写）:
+      B1_SCORE_THRESHOLD / B1_KEYK_ENABLED / B1_KEYK_BURST_WEIGHT / ...
+    """
+    import os
+    overridable = [
+        "score_threshold",
+        "keyk_enabled", "keyk_premise_weight", "keyk_hold_weight",
+        "keyk_today_weight", "keyk_score_threshold",
+        "keyk_premise_lookback", "keyk_control_lookahead",
+    ]
+    for name in overridable:
+        env_key = f"B1_{name.upper()}"
+        if env_key not in os.environ:
+            continue
+        raw = os.environ[env_key].strip()
+        cur = getattr(cls, name)
+        try:
+            if isinstance(cur, bool):
+                setattr(cls, name, raw.lower() in ("1", "true", "yes", "on"))
+            else:
+                setattr(cls, name, int(raw))
+        except (ValueError, TypeError):
+            pass
+
+
 class B1Strategy(BaseStrategy):
     """B1 策略：异动突破回踩企稳"""
 
@@ -80,6 +108,18 @@ class B1Strategy(BaseStrategy):
 
     # 多因子打分阈值
     score_threshold = 5
+
+    # 关键 K 加分维度（patterns 形态库）
+    # 设计：异动日之前的「建仓基础」+ 控制力延续 + 决策日二次启动
+    # 默认关闭：1.5 年回测显示加分参与 ranking 会挤掉好票（年化 +109% → -8%），
+    # 形态库代码保留供「反向过滤」「决策日二次确认」等场景后续接入
+    keyk_enabled = False
+    keyk_premise_weight = 2        # 异动日之前 N 日内出现过 entry 关键 K
+    keyk_hold_weight = 1           # 异动日最低价 ≥ 关键 K 低点（建仓底部未失守）
+    keyk_today_weight = 1          # 决策日是 entry 关键 K（二次启动）
+    keyk_score_threshold = 60      # 关键 K score≥此视为成立
+    keyk_premise_lookback = 60     # 异动日往前回看天数（找 entry 关键 K）
+    keyk_control_lookahead = 5     # 控制力观察日数（保留以便扩展）
 
     # 翻番过滤：最近 doubled_lookback 日 max/min 比例 >= doubled_ratio 视为已大涨，跳过
     doubled_lookback = 60
@@ -418,8 +458,10 @@ class B1Strategy(BaseStrategy):
 
     def _compute_score(self, burst_idx, closes, opens, volumes, yellow_arr,
                        dif_arr, dea_arr, j_arr, n_total,
-                       highs=None, lows=None):
-        """对指定 burst_idx 计算多因子打分，返回 (score, breakdown_list)"""
+                       highs=None, lows=None, df=None, today_idx=None):
+        """对指定 burst_idx 计算多因子打分，返回 (score, breakdown_list)
+
+        df / today_idx 为可选；提供时启用关键 K 加分维度（不传则向后兼容跳过）。"""
         score = 0
         breakdown = []
 
@@ -563,6 +605,45 @@ class B1Strategy(BaseStrategy):
         score += j_penalty
         breakdown.append(f"量价:{j_penalty}")
 
+        # K 关键 K 形态库加分（异动日"之前"找建仓基础 + 底部守护 + 决策日二次启动）
+        if self.keyk_enabled and df is not None:
+            from api.indicator.patterns import score_key_k
+            # K1 异动日之前 keyk_premise_lookback 日内寻找 entry 关键 K
+            premise_idx = -1
+            premise_score = 0.0
+            scan_start = max(1, burst_idx - self.keyk_premise_lookback)
+            for i in range(scan_start, burst_idx):
+                s = score_key_k(df, i)
+                if s.direction == "entry" and s.score >= self.keyk_score_threshold and s.score > premise_score:
+                    premise_idx = i
+                    premise_score = s.score
+            k1 = self.keyk_premise_weight if premise_idx >= 0 else 0
+            score += k1
+            breakdown.append(f"K前{int(premise_score)}:{k1}")
+
+            # K2 异动日最低价 ≥ 关键 K 低点（建仓底部未失守）
+            from api.schemas.kline_constants import KLineConstants as _KC
+            if premise_idx >= 0:
+                premise_low = float(df.iloc[premise_idx][_KC.LOW])
+                burst_low = float(df.iloc[burst_idx][_KC.LOW])
+                k2 = self.keyk_hold_weight if burst_low >= premise_low else 0
+            else:
+                k2 = 0
+            score += k2
+            breakdown.append(f"K守:{k2}")
+
+            # K3 决策日是 entry 关键 K（二次启动）
+            if today_idx is not None and today_idx > burst_idx:
+                today_score = score_key_k(df, today_idx)
+                k3 = self.keyk_today_weight if (
+                    today_score.direction == "entry"
+                    and today_score.score >= self.keyk_score_threshold
+                ) else 0
+                score += k3
+                breakdown.append(f"K今{int(today_score.score)}:{k3}")
+            else:
+                breakdown.append("K今:0")
+
         return score, breakdown
 
     def _reset_state(self):
@@ -600,3 +681,6 @@ class B1Strategy(BaseStrategy):
             self.max_profit_pct = 0.0
             self.below_yellow_count = 0
             self.below_white_count = 0
+
+
+_apply_b1_env_overrides(B1Strategy)

@@ -50,13 +50,9 @@ def _load_name_map() -> dict:
 
 
 class _ParamStub:
-    red_window_size = B1Strategy.red_window_size
-    macd_cross_lookback = B1Strategy.macd_cross_lookback
-    divergence_min_gap_days = B1Strategy.divergence_min_gap_days
-    divergence_price_max = B1Strategy.divergence_price_max
-    doubled_lookback = B1Strategy.doubled_lookback
-    doubled_ratio = B1Strategy.doubled_ratio
-    _prev_vol_ratio = staticmethod(B1Strategy._prev_vol_ratio)
+    """轻量代理：所有属性从 B1Strategy 透传，sweep 时修改 B1Strategy 类属性即时生效。"""
+    def __getattr__(self, name):
+        return getattr(B1Strategy, name)
 
 
 def _zx_white(closes: np.ndarray) -> np.ndarray:
@@ -215,6 +211,7 @@ def check_one(args: tuple):
             stub, ci, closes, opens, volumes, yellow,
             dif_arr, dea_arr, j_arr, n_total,
             highs, lows,
+            df=df, today_idx=n_total - 1,
         )
         if cs >= B1Strategy.score_threshold:
             burst_idx = ci
