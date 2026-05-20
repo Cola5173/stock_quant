@@ -71,6 +71,13 @@ def run_decision(date: str, strategy_key: str = "b1_small") -> Decision:
             if cooldown["active"]:
                 reason_parts.append(f"连续亏损冷却中，剩余 {cooldown['remaining_days']} 个交易日")
             actions.append(ActionItem(kind="wait", reason="；".join(reason_parts)))
+    else:
+        # 满仓：告知用户为什么没有买入建议
+        market_desc = "强势" if market.get("is_strong") else "弱势"
+        actions.append(ActionItem(
+            kind="wait",
+            reason=f"已满仓（{current_count}/{max_slots}，{market_desc}），无空仓位；若持仓触发卖出后将自动扫描买入候选",
+        ))
 
     # 除权除息检测
     for p in positions:
@@ -237,48 +244,54 @@ def _evaluate_one_holding(p: dict, date: str, market: dict, cfg: dict):
             exec_desc="明日开盘市价",
         )
     else:
-        hold_reason = _build_hold_reason(risk, profit_pct, pos.hold_days, cfg)
+        hold_reason = _build_hold_reason(risk, profit_pct, pos.hold_days, cfg,
+                                         cost_price=pos.cost_price, cur_close=cur_close)
         action = ActionItem(kind="hold", symbol=symbol, name=name,
                             reason=hold_reason)
 
     return pos, holding, action
 
 
-def _build_hold_reason(risk: "RiskInfo", profit_pct: float, hold_days: int, cfg: dict) -> str:
-    """根据风险信息生成有价值的 hold 提示（明日可能触发的止损/止盈/时间止损）"""
+def _build_hold_reason(risk: "RiskInfo", profit_pct: float, hold_days: int, cfg: dict,
+                       cost_price: float = 0, cur_close: float = 0) -> str:
+    """根据风险信息生成具体可执行的 hold 提示（带触发价格）"""
     tips = []
+    market_strong = cfg.get("strong_stop_loss_pct", 5.0)
+    market_weak = cfg.get("weak_stop_loss_pct", 3.0)
 
-    # 距止损预警
-    if risk.stop_loss_distance is not None and risk.stop_loss_distance < 3.0:
-        tips.append(f"距硬止损仅 {risk.stop_loss_distance:.1f}%，明日若跌 {risk.stop_loss_distance:.1f}% 将触发止损")
+    # 硬止损价格
+    stop_pct = max(market_strong, market_weak)
+    if cost_price > 0:
+        stop_price = cost_price * (1 - stop_pct / 100)
+        if risk.stop_loss_distance is not None and risk.stop_loss_distance < 3.0:
+            tips.append(f"距硬止损 {risk.stop_loss_distance:.1f}%，跌破 {stop_price:.2f} 全仓卖出")
 
-    # 距大哥黄预警
-    if risk.yellow_distance is not None and risk.yellow_distance < 2.0:
-        tips.append(f"距大哥黄仅 {risk.yellow_distance:.1f}%，跌破将触发卖出")
+    # 大哥黄价格
+    if risk.yellow_distance is not None and risk.yellow_distance < 2.0 and cur_close > 0:
+        yellow_price = cur_close / (1 + risk.yellow_distance / 100)
+        tips.append(f"距大哥黄 {risk.yellow_distance:.1f}%，收盘跌破 {yellow_price:.2f} 触发卖出")
 
     # T+N 时间止损预警
     hold_days_cfg = cfg.get("hold_days", 5)
     min_gain_cfg = cfg.get("min_gain_pct", 2.5)
     if risk.t3_countdown is not None:
         if risk.t3_countdown == 0 and profit_pct < min_gain_cfg:
-            tips.append(f"T+{hold_days_cfg} 已到期且涨幅 {profit_pct:+.2f}% < {min_gain_cfg}%，明日开盘将卖出")
+            tips.append(f"T+{hold_days_cfg} 已到期，涨幅 {profit_pct:+.2f}% < {min_gain_cfg}%，明日开盘卖出")
         elif risk.t3_countdown == 1 and profit_pct < min_gain_cfg:
-            tips.append(f"T+{hold_days_cfg} 明日到期，当前涨幅 {profit_pct:+.2f}%（需 ≥ {min_gain_cfg}% 才保留）")
+            tips.append(f"T+{hold_days_cfg} 明日到期，当前 {profit_pct:+.2f}%（需 ≥ {min_gain_cfg}% 才保留）")
 
     # 距止盈预警
     tp_levels = [8, 16, 24]
     tp_done = 0
-    if hasattr(risk, "t3_profit"):
-        pass
-    # 简单推算下一档止盈
     for lvl in tp_levels:
         if profit_pct >= lvl:
             tp_done += 1
     if tp_done < len(tp_levels):
         next_tp = tp_levels[tp_done]
         dist_to_tp = next_tp - profit_pct
-        if 0 < dist_to_tp < 2.0:
-            tips.append(f"距下一档止盈（+{next_tp}%）仅 {dist_to_tp:.1f}%，明日若涨将触发减仓")
+        if 0 < dist_to_tp < 2.0 and cur_close > 0:
+            tp_price = cur_close * (1 + dist_to_tp / 100)
+            tips.append(f"距止盈（+{next_tp}%）仅 {dist_to_tp:.1f}%，涨到 {tp_price:.2f} 触发减仓 1/3")
 
     if not tips:
         return "持仓中，暂无风险预警"
