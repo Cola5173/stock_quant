@@ -280,11 +280,11 @@ class TushareDataFetcher(DataFetcher):
     @staticmethod
     def _dump_failures(failures: list, start_date: Optional[str],
                        end_date: Optional[str]) -> str:
-        """将失败明细写入 output/download_k_fail/{yyyy-mm-dd-HHMMSS}.json"""
+        """将失败明细写入 output/download_k_fail/{yyyy-mm-dd}.json"""
         import json
         fail_dir = os.path.join(settings.OUTPUT_DIR, "download_k_fail")
         os.makedirs(fail_dir, exist_ok=True)
-        fname = datetime.now().strftime("%Y-%m-%d-%H%M%S") + ".json"
+        fname = datetime.now().strftime("%Y-%m-%d") + ".json"
         path = os.path.join(fail_dir, fname)
         payload = {
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
