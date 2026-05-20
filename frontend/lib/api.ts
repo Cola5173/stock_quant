@@ -51,11 +51,28 @@ export const api = {
     ),
   advisorLatest: () =>
     http<{ positions: Record<string, unknown>; decision: Record<string, unknown> | null }>("/api/advisor/latest"),
-  updatePositions: (data: Record<string, unknown>) =>
-    http<{ status: string }>("/api/advisor/positions", {
-      method: "PUT",
-      body: JSON.stringify(data),
+  // 模拟盘交易流水
+  listTransactions: () =>
+    http<{
+      total_capital: number;
+      transactions: Array<Record<string, unknown>>;
+      positions: Array<Record<string, unknown>>;
+    }>("/api/advisor/transactions"),
+  addTransaction: (tx: Record<string, unknown>) =>
+    http<{ status: string; transaction: Record<string, unknown> }>("/api/advisor/transactions", {
+      method: "POST",
+      body: JSON.stringify(tx),
     }),
+  deleteTransaction: (id: string) =>
+    http<{ total_capital: number; transactions: Array<Record<string, unknown>>; positions: Array<Record<string, unknown>> }>(
+      `/api/advisor/transactions/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
+    ),
+  updateTotalCapital: (totalCapital: number) =>
+    http<{ total_capital: number; transactions: Array<Record<string, unknown>>; positions: Array<Record<string, unknown>> }>(
+      "/api/advisor/total-capital",
+      { method: "PUT", body: JSON.stringify({ total_capital: totalCapital }) }
+    ),
   runDecision: (date?: string, strategy?: string) => {
     const params = new URLSearchParams();
     if (date) params.set("date", date);

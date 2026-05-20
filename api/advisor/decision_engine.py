@@ -304,7 +304,7 @@ def _scan_buy_candidates(date: str, slots_left: int, total_capital: float,
         est_shares = int(amount / est_price // 100) * 100
         if est_shares <= 0:
             continue
-        breakdown_str = " ".join(cand.get("breakdown", []))
+        reason = _format_buy_reason(len(actions) + 1, cand)
         actions.append(ActionItem(
             kind="buy",
             symbol=cand["symbol"],
@@ -312,10 +312,60 @@ def _scan_buy_candidates(date: str, slots_left: int, total_capital: float,
             amount=round(amount, 2),
             estimated_price=round(est_price, 2),
             estimated_shares=est_shares,
-            reason=f"B1异动突破 Top{len(actions)+1} (score={cand['score']}) [{breakdown_str}]",
+            reason=reason,
             exec_desc="明日开盘市价（估算价以今日收盘×1.001 计；实际以开盘为准）",
         ))
     return actions
+
+
+def _format_buy_reason(rank: int, cand: dict) -> str:
+    """将 breakdown 列表翻译为可读的中文描述"""
+    score = cand.get("score", 0)
+    breakdown = cand.get("breakdown", [])
+
+    # 因子名 → 中文描述模板
+    factor_map = {
+        "红肥": lambda v, s: f"异动后阳线占比{v}" if int(s) > 0 else None,
+        "金叉": lambda v, s: "异动前MACD水下金叉" if int(s) > 0 else None,
+        "MACD背": lambda v, s: "MACD底背离" if int(s) > 0 else None,
+        "J背": lambda v, s: "KDJ J值底背离" if int(s) > 0 else None,
+        "量比": lambda v, s: f"异动日量比{v}倍" if int(s) > 0 else None,
+        "地量": lambda v, s: "异动后缩量洗盘" if int(s) > 0 else None,
+        "快收回": lambda v, s: "跌破黄线后快速收回" if int(s) > 0 else None,
+        "破黄": lambda v, s: f"异动后未跌破黄线" if int(s) > 0 else None,
+        "跳空": lambda v, s: f"跳空缺口扣{abs(int(s))}分" if int(s) < 0 else None,
+        "量价": lambda v, s: f"量价背离扣{abs(int(s))}分" if int(s) < 0 else None,
+    }
+
+    highlights = []
+    for item in breakdown:
+        # 格式: "红肥58%:1" / "MACD背:2 J背:1" / "量比4.5:2"
+        parts = item.split()
+        for part in parts:
+            colon_idx = part.rfind(":")
+            if colon_idx < 0:
+                continue
+            key_val = part[:colon_idx]
+            score_str = part[colon_idx + 1:]
+            # 提取因子名和数值部分
+            matched = False
+            for factor_key, fmt_fn in factor_map.items():
+                if key_val.startswith(factor_key):
+                    val_part = key_val[len(factor_key):]
+                    try:
+                        desc = fmt_fn(val_part, score_str)
+                    except (ValueError, TypeError):
+                        desc = None
+                    if desc:
+                        highlights.append(desc)
+                    matched = True
+                    break
+
+    detail = "、".join(highlights) if highlights else ""
+    header = f"B1异动突破 Top{rank}，评分：{score}"
+    if detail:
+        return f"{header}，{detail}"
+    return header
 
 
 def _compute_next_trading_date(date: str) -> str:
@@ -344,7 +394,10 @@ def _serialize_holding(h):
 
 
 def _save_decision(decision: Decision):
-    """原子写 decision JSON"""
+    """原子写 decision JSON，并清理掉其它 decision_*.json 旧文件。
+    同一决策日重算 → 同名覆盖；决策日变化（如目标交易日更新）→ 旧文件会被一并清掉，
+    避免 _load_latest_decision 按文件名排序时取到 stale 数据。
+    """
     os.makedirs(settings.DECISIONS_DIR, exist_ok=True)
     date_str = decision.date.replace("-", "")
     path = os.path.join(settings.DECISIONS_DIR, f"decision_{date_str}.json")
@@ -370,5 +423,17 @@ def _save_decision(decision: Decision):
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise
+
+    # 清理其它 decision_*.json（保留刚写的这一份）
+    try:
+        from glob import glob as _glob
+        for old_path in _glob(os.path.join(settings.DECISIONS_DIR, "decision_*.json")):
+            if os.path.abspath(old_path) != os.path.abspath(path):
+                try:
+                    os.unlink(old_path)
+                except OSError as e:
+                    logger.debug(f"清理旧决策文件失败 {old_path}: {e}")
+    except Exception as e:
+        logger.debug(f"清理旧决策文件异常（忽略）: {e}")
 
     logger.info(f"决策已保存: {path}")

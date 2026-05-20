@@ -63,8 +63,10 @@ LOG_DIR = _abs("logs")
 STOCK_LIST_CACHE = _abs("data/stock_list.csv")
 
 # ====== Advisor 配置 ======
-POSITIONS_FILE = _abs("data/positions.json")
-CLOSED_TRADES_FILE = _abs("data/closed_trades.json")
+# 模拟盘交易/持仓/已平仓数据放在 output/trades/，与 data/（K 线数据）分离
+POSITIONS_FILE = _abs("output/trades/positions.json")
+TRANSACTIONS_FILE = _abs("output/trades/transactions.json")
+CLOSED_TRADES_FILE = _abs("output/trades/closed_trades.json")
 DECISIONS_DIR = _abs("output/decisions")
 
 EMAIL_CONFIG = {
