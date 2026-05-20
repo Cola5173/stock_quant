@@ -215,3 +215,21 @@ class IndicatorCalculator:
         prev_closes = self.am.close_array[-(period + 1):-1]
         tr = np.maximum(highs - lows, np.maximum(np.abs(highs - prev_closes), np.abs(lows - prev_closes)))
         return float(np.mean(tr))
+
+    # ---------------- 关键 K（patterns 形态库桥接） ----------------
+    def key_k(self, symbol=None, is_st: bool = False) -> dict:
+        """对当前最新 K 评分，返回 {score, direction, breakdown, notes, date}。"""
+        from api.indicator.patterns import score_key_k
+        s = score_key_k(self._df, len(self._df) - 1, symbol=symbol, is_st=is_st)
+        return {
+            "idx": s.idx,
+            "date": s.date,
+            "score": s.score,
+            "direction": s.direction,
+            "breakdown": s.breakdown,
+            "notes": s.notes,
+        }
+
+    def key_k_control(self, idx: int, lookahead: int = 10) -> dict:
+        from api.indicator.patterns import verify_control
+        return verify_control(self._df, idx, lookahead=lookahead)
