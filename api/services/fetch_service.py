@@ -39,7 +39,8 @@ _state: dict = {
     # 上一次成功完成的目标交易日（用于复用：同一天再触发直接跳过）
     "last_target_date": None,
 }
-_lock = threading.Lock()
+_lock = threading.Lock()              # 保护 _state 字典的读写
+_fetch_lock = threading.Lock()        # 拉取互斥锁：全局只允许一个拉取任务同时运行
 
 
 def get_status() -> FetchStatus:
@@ -51,48 +52,64 @@ def get_status() -> FetchStatus:
 
 def start_fetch_latest(source: str = "akshare") -> dict:
     """
-    启动后台拉取任务。
+    启动后台拉取任务（互斥锁保证全局只有一个拉取在跑）。
     返回 dict: { started: bool, reason: str, target_date: str }
-    - 已有任务在跑：复用，started=False, reason='running'
-    - 本次目标日已是最新（标杆股本地数据 >= target）：跳过，started=False, reason='up_to_date'
+    - 已有任务持锁：复用，started=False, reason='running'
+    - 本次目标日已是最新：跳过，started=False, reason='up_to_date'
     - 新任务启动：started=True, reason='launched'
     """
     target_date = get_target_trade_date()
     target_str = target_date.strftime("%Y-%m-%d")
 
-    with _lock:
-        if _state["running"]:
-            return {
-                "started": False,
-                "reason": "running",
-                "target_date": target_str,
-                "source": _state.get("source"),
-            }
-        # 已是最新 → 不启动任务，直接复用结果
+    # 1) 抢拉取锁；抢不到说明另一个任务正在执行
+    if not _fetch_lock.acquire(blocking=False):
+        with _lock:
+            running_source = _state.get("source")
+        logger.info(f"拉取锁被占用，复用进行中的任务（source={running_source}, target={target_str}）")
+        return {
+            "started": False,
+            "reason": "running",
+            "target_date": target_str,
+            "source": running_source,
+        }
+
+    # 2) 已持锁 — 任何提前返回都必须释放
+    try:
         if _is_market_up_to_date(target_str):
-            _state["last_target_date"] = target_str
+            with _lock:
+                _state["last_target_date"] = target_str
+            logger.info(f"市场已是最新（目标 {target_str}），跳过拉取，立即释放锁")
+            _fetch_lock.release()
             return {
                 "started": False,
                 "reason": "up_to_date",
                 "target_date": target_str,
                 "source": source,
             }
-        _state.update({
-            "running": True,
-            "source": source,
-            "started_at": datetime.now().isoformat(timespec="seconds"),
-            "finished_at": None,
-            "error": None,
-        })
 
-    thread = threading.Thread(target=_run_fetch, args=(source, target_date), daemon=True)
-    thread.start()
-    return {
-        "started": True,
-        "reason": "launched",
-        "target_date": target_str,
-        "source": source,
-    }
+        with _lock:
+            _state.update({
+                "running": True,
+                "source": source,
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "finished_at": None,
+                "error": None,
+            })
+
+        # 后台线程负责在 finally 中释放 _fetch_lock
+        thread = threading.Thread(target=_run_fetch, args=(source, target_date), daemon=True)
+        thread.start()
+        logger.info(f"拉取任务已启动（source={source}, target={target_str}），锁由后台线程持有")
+        return {
+            "started": True,
+            "reason": "launched",
+            "target_date": target_str,
+            "source": source,
+        }
+    except Exception:
+        # 同步阶段任何异常都要释放锁，避免死锁
+        _fetch_lock.release()
+        raise
 
 
 def _is_market_up_to_date(target_date_str: str) -> bool:
@@ -141,13 +158,18 @@ def _run_fetch(source: str, target_date):
 
         with _lock:
             _state["last_target_date"] = target_str
+        logger.info(f"拉取完成：source={source}, target={target_str}")
     except Exception as e:
+        logger.exception(f"拉取异常：{e}")
         with _lock:
             _state["error"] = str(e)
     finally:
         with _lock:
             _state["running"] = False
             _state["finished_at"] = datetime.now().isoformat(timespec="seconds")
+        # 释放拉取锁，允许下一次触发
+        _fetch_lock.release()
+        logger.info("拉取锁已释放")
 
 
 def _fetch_indices(start: str, end: str):

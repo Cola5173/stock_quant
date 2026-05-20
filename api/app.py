@@ -3,6 +3,17 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import logging
+
+# 应用日志配置：uvicorn 只配自己的 access logger，应用代码里的 logger 默认丢弃
+# force=True 覆盖任何已存在的 root handler，确保 api/* 的 logger.info 能输出
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+    force=True,
+)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
