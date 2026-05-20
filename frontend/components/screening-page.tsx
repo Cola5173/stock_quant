@@ -53,7 +53,11 @@ export function ScreeningPage() {
             setRunningTask(null);
             showToast("error", `选股失败：${task.error}`);
           }
-        } catch { /* ignore poll errors */ }
+        } catch {
+          // 404 或网络错误 → 停止轮询（任务可能因服务重启丢失）
+          if (pollRef.current) clearInterval(pollRef.current);
+          setRunningTask(null);
+        }
       }, 2000);
     } catch (err: unknown) {
       showToast("error", `提交失败：${err instanceof Error ? err.message : String(err)}`);
