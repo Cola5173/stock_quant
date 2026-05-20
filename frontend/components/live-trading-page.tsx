@@ -92,6 +92,10 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
     mutationFn: () => api.runDecision(undefined, strategy),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["advisor-latest"] });
+      showToast("success", "决策计算完成");
+    },
+    onError: (err: Error) => {
+      showToast("error", `计算失败：${err.message}`);
     },
   });
 
@@ -169,7 +173,7 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
               className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-xs flex items-center gap-1.5"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${recalculate.isPending ? "animate-spin" : ""}`} />
-              {recalculate.isPending ? "计算中..." : "重新计算决策"}
+              {recalculate.isPending ? "计算中..." : "计算决策"}
             </button>
           </div>
         }
