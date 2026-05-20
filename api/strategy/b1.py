@@ -60,6 +60,9 @@ def _apply_b1_env_overrides(cls):
         "keyk_enabled", "keyk_premise_weight", "keyk_hold_weight",
         "keyk_today_weight", "keyk_score_threshold",
         "keyk_premise_lookback", "keyk_control_lookahead",
+        "after_burst_dd_enabled",
+        "after_burst_dd_t1", "after_burst_dd_t2", "after_burst_dd_t3",
+        "ma60_uptrend_enabled", "ma60_slope_min",
     ]
     for name in overridable:
         env_key = f"B1_{name.upper()}"
@@ -70,6 +73,8 @@ def _apply_b1_env_overrides(cls):
         try:
             if isinstance(cur, bool):
                 setattr(cls, name, raw.lower() in ("1", "true", "yes", "on"))
+            elif isinstance(cur, float):
+                setattr(cls, name, float(raw))
             else:
                 setattr(cls, name, int(raw))
         except (ValueError, TypeError):
@@ -109,6 +114,14 @@ class B1Strategy(BaseStrategy):
     # 多因子打分阈值
     score_threshold = 5
 
+    # L 异动后最大回撤扣分（"回得太多说明弱"，从 burst close 起算到当前 close 的最大回撤）
+    # 默认关闭：1.5 年回测 5/10/15 档位 → +39%，8/12/18 → -20%，15+ → +108%（≈基线）
+    # 结论：扣分干扰排序，把好票挤后；除非档位严到几乎不触发，否则都是退步
+    after_burst_dd_enabled = False
+    after_burst_dd_t1 = 5.0       # 回撤 ≥ 5% → -1
+    after_burst_dd_t2 = 10.0      # 回撤 ≥ 10% → -2
+    after_burst_dd_t3 = 15.0      # 回撤 ≥ 15% → -3
+
     # 关键 K 加分维度（patterns 形态库）
     # 设计：异动日之前的「建仓基础」+ 控制力延续 + 决策日二次启动
     # 默认关闭：1.5 年回测显示加分参与 ranking 会挤掉好票（年化 +109% → -8%），
@@ -120,6 +133,15 @@ class B1Strategy(BaseStrategy):
     keyk_score_threshold = 60      # 关键 K score≥此视为成立
     keyk_premise_lookback = 60     # 异动日往前回看天数（找 entry 关键 K）
     keyk_control_lookahead = 5     # 控制力观察日数（保留以便扩展）
+
+    # M MA60 拐头向上硬过滤（中期趋势扭转 — 不参与排序，仅决定入不入选）
+    # 异动日的 MA60 必须有正斜率（向上），否则中期趋势未扭转，整票淘汰
+    # 默认关闭：1.5 年回测 +109% → +67%，被过滤掉的 10 笔里有大赚票
+    # 推断：B1 抓的是"建仓尾声"，那时 MA60 多半还没拐头；等转正才入场反而晚了
+    ma60_uptrend_enabled = False
+    ma60_period = 60
+    ma60_slope_window = 5         # 比较 ma60[i] 与 ma60[i-window]
+    ma60_slope_min = 0.0          # 至少要 > 0 才算拐头（可调高要求更陡）
 
     # 翻番过滤：最近 doubled_lookback 日 max/min 比例 >= doubled_ratio 视为已大涨，跳过
     doubled_lookback = 60
@@ -176,6 +198,25 @@ class B1Strategy(BaseStrategy):
         self.original_volume = 0  # 原始买入股数
         self.scale_stage = 0  # 减仓阶段（0=未减, 1=已减一次, 2=已减两次）
         self.realized_pnl = 0.0  # 已实现盈亏（部分卖出累计）
+
+    @staticmethod
+    def _ma60_uptrend(closes: np.ndarray, idx: int, period: int = 60,
+                      slope_window: int = 5, slope_min: float = 0.0) -> bool:
+        """异动日 idx 的 MA{period} 是否拐头向上（中期趋势扭转）。
+
+        通过比较 MA[idx] 与 MA[idx-slope_window] 判断斜率方向。
+        斜率严格 > slope_min 才算拐头。前置数据不足返回 False（保守）。
+        """
+        if idx < period + slope_window:
+            return False
+        s = pd.Series(closes[: idx + 1])
+        ma = s.rolling(period, min_periods=period).mean().values
+        cur = ma[idx]
+        prev = ma[idx - slope_window]
+        if np.isnan(cur) or np.isnan(prev) or prev <= 0:
+            return False
+        slope_pct = (cur - prev) / prev * 100
+        return slope_pct > slope_min
 
     @staticmethod
     def _yellow_series(closes: np.ndarray) -> np.ndarray:
@@ -604,6 +645,25 @@ class B1Strategy(BaseStrategy):
                     j_penalty -= 1
         score += j_penalty
         breakdown.append(f"量价:{j_penalty}")
+
+        # L 异动后最大回撤扣分（"回得太多说明弱，给外盘便宜筹码"）
+        if self.after_burst_dd_enabled:
+            burst_close_val = float(closes[burst_idx])
+            after_closes = closes[burst_idx + 1: n_total]
+            if len(after_closes) > 0 and burst_close_val > 0:
+                min_after = float(np.min(after_closes))
+                dd_pct = (burst_close_val - min_after) / burst_close_val * 100
+            else:
+                dd_pct = 0.0
+            l_score = 0
+            if dd_pct >= self.after_burst_dd_t3:
+                l_score = -3
+            elif dd_pct >= self.after_burst_dd_t2:
+                l_score = -2
+            elif dd_pct >= self.after_burst_dd_t1:
+                l_score = -1
+            score += l_score
+            breakdown.append(f"回撤{dd_pct:.0f}%:{l_score}")
 
         # K 关键 K 形态库加分（异动日"之前"找建仓基础 + 底部守护 + 决策日二次启动）
         if self.keyk_enabled and df is not None:

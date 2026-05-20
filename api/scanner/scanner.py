@@ -35,11 +35,15 @@ def _scan_worker(args: tuple) -> Optional[dict]:
     """
     strategy_name, symbol, date = args
     try:
-        from tests.scan_b1_full import check_one as scan_b1_check_one
-        result = scan_b1_check_one((symbol, date))
+        if strategy_name == "b2_small":
+            from tests.scan_b2_full import check_one as scan_b2_check_one
+            result = scan_b2_check_one((symbol, date))
+        else:
+            from tests.scan_b1_full import check_one as scan_b1_check_one
+            result = scan_b1_check_one((symbol, date))
         if result is None:
             return None
-        if strategy_name == "b1_small" and float(result.get("close", 0)) > _B1_SMALL_MAX_PRICE:
+        if strategy_name in ("b1_small", "b2_small") and float(result.get("close", 0)) > _B1_SMALL_MAX_PRICE:
             return None
         return result
     except Exception as e:
@@ -81,11 +85,11 @@ class Scanner:
         :param workers: 并发进程数，默认 8
         :return: 候选股票列表
         """
-        # 前置过滤：归一化代码 + b1_small 主板/ST 过滤
+        # 前置过滤：归一化代码 + b1_small/b2_small 主板/ST 过滤
         tasks = []
         for stock_code in self.stock_list:
             symbol = _normalize_stock_code(stock_code)
-            if self.strategy_name == "b1_small":
+            if self.strategy_name in ("b1_small", "b2_small"):
                 if not self._is_main_board(symbol):
                     continue
                 if symbol in self._st_set:
@@ -117,7 +121,7 @@ class Scanner:
 
     def _check_stock(self, symbol: str, date: str) -> Optional[dict]:
         """单只股票检查（同 _scan_worker，保留供单元测试/调试调用）"""
-        if self.strategy_name == "b1_small":
+        if self.strategy_name in ("b1_small", "b2_small"):
             if not self._is_main_board(symbol):
                 return None
             if symbol in self._st_set:

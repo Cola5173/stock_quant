@@ -207,6 +207,16 @@ def check_one(args: tuple):
                 break
         if big_drop:
             continue
+
+        # M MA60 拐头硬过滤（中期趋势扭转，不参与排序）
+        if B1Strategy.ma60_uptrend_enabled:
+            if not B1Strategy._ma60_uptrend(
+                closes, ci,
+                period=B1Strategy.ma60_period,
+                slope_window=B1Strategy.ma60_slope_window,
+                slope_min=B1Strategy.ma60_slope_min,
+            ):
+                continue
         cs, cb = B1Strategy._compute_score(
             stub, ci, closes, opens, volumes, yellow,
             dif_arr, dea_arr, j_arr, n_total,
