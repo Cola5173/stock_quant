@@ -32,7 +32,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(req),
     }),
-  fetchLatest: (source = "akshare") =>
+  fetchLatest: (source = "tushare") =>
     http<FetchTriggerResponse>(`/api/fetch/latest?source=${source}`, { method: "POST" }),
   fetchStatus: () => http<FetchStatus>("/api/fetch/status"),
   selectedStrategies: () => http<SelectedStrategy[]>("/api/selected/strategies"),

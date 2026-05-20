@@ -239,21 +239,30 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
                 : "border-zinc-700 bg-zinc-800/40";
               const levelLabel = level === "high" ? "高风险" : level === "medium" ? "中风险" : "低风险";
               const levelTextColor = level === "high" ? "text-red-300" : level === "medium" ? "text-amber-300" : "text-zinc-400";
+
+              const profitPct = Number(h.profit_pct ?? 0);
+              const tpLevels = [8, 16, 24];
+              const tpDone = Number(h.tp_level_done ?? 0);
+              const nextTp = tpDone < tpLevels.length ? tpLevels[tpDone] : null;
+              const distToTp = nextTp !== null ? (nextTp - profitPct).toFixed(1) : null;
+
               return (
                 <div key={i} className={`rounded-lg border p-3 ${levelColor}`}>
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`text-xs font-bold ${levelTextColor}`}>{levelLabel}</span>
                     <span className="text-sm text-zinc-300">{String(h.symbol)} {String(h.name ?? "")}</span>
                     <span className="text-xs text-zinc-500 ml-auto">
-                      浮盈 <span className={Number(h.profit_pct) >= 0 ? "text-green-400" : "text-red-400"}>
-                        {Number(h.profit_pct) >= 0 ? "+" : ""}{Number(h.profit_pct).toFixed(2)}%
-                      </span>
+                      持仓 {Number(h.hold_days ?? 0)} 天 · 现价 {Number(h.current_close ?? 0).toFixed(2)}
                     </span>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-xs text-zinc-500 mt-2">
-                    <span>距硬止损 {Number(risk.stop_loss_distance).toFixed(1)}%</span>
+                    <span>距止损 <span className={Number(risk.stop_loss_distance) < 3 ? "text-red-400 font-medium" : "text-zinc-300"}>{Number(risk.stop_loss_distance).toFixed(1)}%</span></span>
+                    <span>距止盈 <span className={distToTp !== null && Number(distToTp) < 2 ? "text-green-400 font-medium" : "text-zinc-300"}>{distToTp !== null ? `${distToTp}%（+${nextTp}%）` : "已完成"}</span></span>
+                    <span>T+5 倒计时 <span className={Number(risk.t3_countdown) <= 1 ? "text-amber-400 font-medium" : "text-zinc-300"}>{Number(risk.t3_countdown)} 天</span></span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs text-zinc-500 mt-1">
                     <span>距大哥黄 {Number(risk.yellow_distance).toFixed(1)}%</span>
-                    <span>T+3 倒计时 {Number(risk.t3_countdown)} 天</span>
+                    <span>当前涨幅 <span className={profitPct >= 0 ? "text-green-400" : "text-red-400"}>{profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}%</span></span>
                   </div>
                   {notes.length > 0 && (
                     <ul className="mt-2 space-y-0.5">

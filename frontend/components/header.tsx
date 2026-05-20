@@ -25,7 +25,7 @@ export function Header({ subtitle, dateRange }: { subtitle?: string; dateRange?:
   });
 
   const trigger = useMutation({
-    mutationFn: () => api.fetchLatest("akshare"),
+    mutationFn: () => api.fetchLatest("tushare"),
     onSuccess: () => statusQuery.refetch(),
   });
 

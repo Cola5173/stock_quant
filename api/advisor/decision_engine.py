@@ -185,6 +185,27 @@ def _evaluate_one_holding(p: dict, date: str, market: dict, cfg: dict):
                                          reason="无行情数据")
 
     replay_state(pos, df, date, market.get("is_strong", True))
+
+    # 如果 buy_date > decision_date（今天买入，但决策日对齐到昨天收盘），
+    # replay 无 bar 可遍历且 calc_sell_signal 不应执行（那天还没持仓）。
+    # 直接报 hold_days=1，无卖出信号。
+    buy_dt = pd.to_datetime(p["buy_date"])
+    decision_dt = pd.to_datetime(date)
+    if buy_dt > decision_dt:
+        pos.hold_days = 1
+        bar = get_bar(df, date)
+        cur_close = float(bar[KLineConstants.CLOSE]) if bar is not None else pos.cost_price
+        profit_pct = (cur_close - pos.cost_price) / pos.cost_price * 100
+        risk = _compute_risk(pos, df, date, cur_close, profit_pct, market.get("is_strong", True), cfg)
+        holding = HoldingInfo(
+            symbol=symbol, name=name, shares=pos.shares,
+            cost_price=pos.cost_price, current_close=round(cur_close, 2),
+            profit_pct=round(profit_pct, 2), hold_days=1,
+            tp_level_done=0, above_white_once=False, risk=risk,
+        )
+        return pos, holding, ActionItem(kind="hold", symbol=symbol, name=name,
+                                         reason="买入当天，持仓第 1 天")
+
     reason, ratio = calc_sell_signal(
         pos, df, date, market.get("is_strong", True),
         hold_days=cfg["hold_days"],

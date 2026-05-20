@@ -6,7 +6,7 @@ import { Database, Globe, Server, Save } from "lucide-react";
 export function SettingsPage() {
   const [apiHost, setApiHost] = useState("127.0.0.1");
   const [apiPort, setApiPort] = useState("7088");
-  const [dataSource, setDataSource] = useState("akshare");
+  const [dataSource, setDataSource] = useState("tushare");
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
