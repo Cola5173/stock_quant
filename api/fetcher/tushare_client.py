@@ -59,7 +59,7 @@ import tushare as ts
 # 支持通过环境变量覆盖（云端部署时把 token 放进 env，避免提交进 git）
 TUSHARE_TOKEN = os.environ.get(
     "TUSHARE_TOKEN",
-    "23fa576ec57c0fb8d5de277b2c9481e3af7a4566def2d29ba90ee900",
+    "ed52f8c61bb784a99e22548523c2ff03dc7d15b049b77199fb7c683e",
 )
 TUSHARE_API_URL = os.environ.get(
     "TUSHARE_API_URL",
