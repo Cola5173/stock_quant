@@ -90,7 +90,10 @@ T 当日同时满足：
 满足全部条件 → `buy_full(bar.close_price, reason)`，`reason` 形如：
 `"v_master[V=2026-05-12 V量比3.6 量重移1.4x]"`。
 
-按 `BaseStrategy` 的 T 日下单 / T+1 区间撮合规则成交。
+撮合行为（来自 `BaseStrategy`）：
+
+- **买入**：T 日下单只是排队（`_pending_buy`），T+1 bar 检查 `low ≤ T_close ≤ high`，区间内才按 T_close 成交，否则放弃
+- **卖出**：当日按 `bar.close_price` 立即成交（不进 T+1 撮合队列）
 
 ### 3.6 卖出规则（仅一条）
 
@@ -103,9 +106,12 @@ T 当日同时满足：
 ### 4.1 实例字段
 
 ```
-v_low: float = 0.0       # V 锚日的最低价，整笔交易锁定
-v_idx_date: str = ""     # V 锚日期字符串，用于 reason 与复盘
-buy_price: float = 0.0   # 与 B1 一致用法
+v_low: float = 0.0       # V 锚日的最低价，整笔交易锁定（成交后赋值）
+v_idx_date: str = ""     # V 锚日期字符串，用于 reason 与复盘（成交后赋值）
+buy_price: float = 0.0   # 与 B1 一致用法（成交后赋值）
+
+_pending_v_low: float = 0.0     # T 日下单时暂存，T+1 成交时固化到 v_low
+_pending_v_idx_date: str = ""   # T 日下单时暂存，T+1 成交时固化到 v_idx_date
 ```
 
 不再维护 `hold_days / max_profit_pct / scale_stage / below_yellow_count` 等。
@@ -125,19 +131,24 @@ execute_logic:
   if pos == 0:
     if at_upper_limit: return
     if 翻番过滤: return
-    V_idx = find_v_anchor(am)
+    V_idx = _find_v_anchor(opens, highs, lows, closes, volumes, T)
     if V_idx is None: return
-    if not check_washout(am, V_idx): return
-    if not check_today_confirm(am, V_idx): return
-    buy_full(bar.close, reason)
-    # buy_price / v_low / v_idx_date 在 on_trade 成交回调中设置
+    if not _check_washout(opens, closes, lows, volumes, V_idx, T): return
+    if not _check_today_confirm(opens, closes, volumes, V_idx, T): return
+    # 暂存 V 信息，等 T+1 成交回调里固化
+    self._pending_v_low = lows[V_idx]
+    self._pending_v_idx_date = bars[V_idx].datetime.date().isoformat()
+    self.buy_full(bar.close, reason)
 ```
 
 ### 4.3 状态写入时机
 
-- `v_low / v_idx_date / buy_price` **仅在 `on_trade` 成交回调里**写入；`buy_full` 只是排队下单。
-  避免 T+1 撮合失败但状态被错误标记的问题。
-- `on_trade` 卖出回调：`v_low=0.0`, `v_idx_date=""`, `buy_price=0.0`。
+`on_trade(trade)` 必须先调用 `super().on_trade(trade)` 走通父类的 `buy_date / cash` 维护，再分支：
+
+- **买入分支**：`buy_price = trade.price`，把 `_pending_v_low → v_low`、`_pending_v_idx_date → v_idx_date`，并清空 pending
+- **卖出分支**：`v_low = 0.0 / v_idx_date = "" / buy_price = 0.0 / _pending_v_low = 0.0 / _pending_v_idx_date = ""`
+
+为什么暂存：T 日 `execute_logic` 算出 V_idx 时只是排队 `_pending_buy`；T+1 bar 触发 `on_bar` → `_cross_pending_buy` → `_execute_trade` → `on_trade` 这一连串里，`am` 已经又走了一根 bar，原 V_idx 失效。所以必须在 T 日把 `lows[V_idx]` 和日期字符串固化到 self 上等待 on_trade 消费。如果 T+1 撮合失败，pending 字段虽然残留，但因为 `pos == 0`，下一根 bar 重新走 execute_logic 会再次覆写 pending（或者 `_find_v_anchor` 失败时不写入），不会污染状态。
 
 ## 5. 数据流与扫描器
 
@@ -156,10 +167,14 @@ execute_logic:
 
 `tests/scan_v_master_full.py`，与 `scan_b1_full.py` 同构：
 
-- 读 `data/{symbol}.csv` → numpy
-- 调用 `VMasterStrategy._find_v_anchor / _check_washout / _check_today_confirm`（`@staticmethod` 抽出供扫描器复用）
+- 读 `data/{symbol}.csv` → numpy 数组
+- 调用 `VMasterStrategy._find_v_anchor / _check_washout / _check_today_confirm`（`@staticmethod`，签名统一接收 numpy 数组：`(opens, highs, lows, closes, volumes, T_idx, ...) -> int | bool`），策略层从 `am.*_array` 取值传入，扫描器从 csv 读出后直接传入
 - `ProcessPoolExecutor`，默认 `--workers 4`
 - 命中即写 `selected/{yyyy-mm-dd}/v_master.json`
+
+约束：所有判定函数都不依赖 `ArrayManager` 实例，全部基于 numpy 数组，确保策略层与扫描器走同一套实现。
+
+数据下限常量：`MIN_BARS_REQUIRED = max(lookback_v + 25, down_lookback + 20)`，目前 = 80。任意函数被调用前应先检查 `n_total ≥ MIN_BARS_REQUIRED`，不足直接返回 None / False。
 
 ### 5.3 输出 schema
 
@@ -191,7 +206,7 @@ execute_logic:
 
 | 场景 | 处理 |
 |------|------|
-| `n_total < lookback_v + 25` | 不入场 |
+| `n_total < MIN_BARS_REQUIRED`（默认 80） | 不入场 |
 | 60 日窗口在数据起点不足 | 用现有数据最大值，不报错 |
 | 量基线 i < 5 | 该 i 不当候选 |
 | `opens[i] ≤ 0` 或 `closes[i] ≤ 0` | 跳过该 i |
