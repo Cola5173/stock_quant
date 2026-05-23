@@ -6,6 +6,7 @@ from vnpy.trader.constant import Direction
 
 from api.strategy.b1_small import B1SmallStrategy
 from api.strategy.b2_small import B2SmallStrategy
+from api.strategy.v_master import VMasterStrategy
 from api.backtest.engine import BacktestRunner
 from api.adapter.vnpy_adapter import VnpyAdapter
 from api.schemas.models import (
@@ -18,6 +19,7 @@ from api.schemas.models import (
 STRATEGY_REGISTRY = {
     "b1_small": ("B1 Small", B1SmallStrategy, "B1 小资金版：仅主板 + 严格止损 + T+5 时间止损"),
     "b2_small": ("B2 Small", B2SmallStrategy, "B2 小资金版：T-1 是 B1 + T 日放量阳确认 + 多门重炮形态识别"),
+    "v_master": ("V Master", VMasterStrategy, "底部巨量 V 锚 + 洗盘不破低 + 二次放量启动；破 V 锚低点清仓"),
 }
 
 # vnpy ArrayManager(size=200) 预热所需的额外历史天数
