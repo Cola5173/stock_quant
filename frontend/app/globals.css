@@ -8,3 +8,12 @@
 html, body {
   height: 100%;
 }
+
+/* 全局隐藏滚动条但保留滚动能力 */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}

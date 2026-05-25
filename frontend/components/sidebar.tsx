@@ -1,6 +1,6 @@
 "use client";
 
-import { LineChart, Search, CandlestickChart, FlaskConical, Settings, Activity, BarChart3 } from "lucide-react";
+import { LineChart, Search, CandlestickChart, FlaskConical, Settings, Activity, BarChart3, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { key: "screening", label: "策略选股", icon: Search },
   { key: "portfolio_backtest", label: "策略回测", icon: BarChart3 },
   { key: "live", label: "模拟盘", icon: Activity },
+  { key: "etf", label: "ETF", icon: Wallet },
 ] as const;
 
 export type NavKey = "home" | "settings" | (typeof NAV_ITEMS)[number]["key"];

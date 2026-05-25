@@ -16,6 +16,7 @@ import { SettingsPage } from "@/components/settings-page";
 import { ScreeningPage } from "@/components/screening-page";
 import { LiveTradingPage } from "@/components/live-trading-page";
 import { PortfolioBacktestPage } from "@/components/portfolio-backtest-page";
+import { EtfPage } from "@/components/etf-page";
 import type { BacktestRequest, BacktestResponse, StockItem } from "@/lib/types";
 
 function getDateRange(range: TimeRange): { start: string; end: string } {
@@ -231,6 +232,11 @@ export default function HomePage() {
           {/* 策略回测 */}
           {navActive === "portfolio_backtest" && (
             <PortfolioBacktestPage />
+          )}
+
+          {/* ETF 定投计算器 */}
+          {navActive === "etf" && (
+            <EtfPage />
           )}
 
           {/* 设置 */}
