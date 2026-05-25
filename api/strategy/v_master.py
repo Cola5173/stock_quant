@@ -1,30 +1,18 @@
 """
-v_master 策略
-底部巨量 → 洗盘不破 → 二次启动放量 买入策略
+v_master 策略：主力进场识别
 
-买入条件（全部硬规则，无打分）:
-  1. 翻番过滤：近 60 日 max/min ≥ 1.8 跳过
-  2. 巨量基础日 V_idx（V 锚）：在 [T-cooldown_max, T-cooldown_min] 窗口内最早
-     满足以下的 i
-       a) 下跌语境：closes[i] ≤ max(highs[i-down_lookback..i-1]) × (1 - down_drawdown%)
-       b) 阳线：closes[i] > opens[i] 且实体涨幅 ≥ v_body_min_pct（30/68 用 v_body_min_pct_kc）
-       c) 巨量：volumes[i] / mean(volumes[i-5..i-1]) ≥ v_vol_ratio
-       d) 不能涨停（< 板块限制 - 0.1）
-  3. 洗盘期 [V_idx+1..T-1]：
-       a) 不破巨量低点：min(lows) ≥ lows[V_idx]
-       b) 无放量大阴：任一 j 跌幅 > 5% 且量比 > 1.5 → 淘汰
-  4. 决策日 T：
-       a) 阳线，涨幅 ≥ t_body_min_pct（30/68 用 t_body_min_pct_kc）
-       b) 量比 ≥ t_vol_ratio
-       c) 收盘 ≥ MA5
-       d) 量能重心上移：mean(volumes[T-4..T]) > mean(volumes[V_idx-20..V_idx-1])
-       e) MA10 > MA20 且 MA10[T] > MA10[T-1]（拐头向上）
-       f) 不能涨停
+信号链：
+  1. MACD 底背离（DIF 底背离 或 MACD 柱底背离，任一成立）
+  2. 量能放大事件（近 30 日内存在某日量比 ≥ vol_surge_ratio）
+  3. DIF 从水下转水上（DIF > 0）
+  4. 收盘站稳黄白线上方（close > 大哥黄 且 close > 趋势白）
+  → 满仓买入
 
-卖出条件（仅一条铁律）:
-  bar.close < v_low（V 锚日最低价）→ 全仓清出
+止损：
+  close < min(大哥黄, 趋势白) → 全仓清出
 
-无放飞减仓、无回撤止盈、无时间止损。
+核心理念：量能骗不了人。股价长期阴跌/横盘后，主力进场必然带来量能异常放大。
+MACD 底背离确认下跌动能衰竭，量能放大确认主力入场，DIF 水上 + 站稳黄白确认趋势反转。
 """
 from collections import deque
 
@@ -35,51 +23,38 @@ from api.strategy.base_strategy import BaseStrategy
 
 
 class VMasterStrategy(BaseStrategy):
-    """v_master 策略：底部巨量 + 洗盘不破 + 二次启动"""
+    """v_master 策略：MACD 底背离 + 量能放大 + DIF 水上 + 站稳黄白线"""
 
     author = "stock_quant"
 
-    # === V 锚（巨量基础日）参数 ===
-    lookback_v = 60                 # 找 V 锚的回看天数
-    cooldown_min = 5                # V 与 T 至少间隔
-    cooldown_max = 15               # V 与 T 最多间隔
-    down_lookback = 60              # 下跌语境的高点回看
-    down_drawdown = 20.0            # 下跌幅度阈值（%）
-    v_body_min_pct = 3.0            # V 锚阳线最小实体涨幅（主板）
-    v_body_min_pct_kc = 4.0         # 创/科/北板 V 锚阳线最小实体涨幅
-    v_vol_ratio = 3.0               # V 锚量比阈值（基准 5 日均量）
+    # === MACD 底背离参数 ===
+    divergence_lookback = 60        # 底背离回看窗口（交易日）
+    divergence_min_gap = 5          # 两个低点之间最小间隔
 
-    # === 洗盘期参数 ===
-    washout_drop_pct = 5.0          # 洗盘期放量大阴阈值
-    washout_drop_vol_ratio = 1.5    # 洗盘期放量大阴量比
-
-    # === 决策日 T 参数 ===
-    t_body_min_pct = 2.0            # 决策日阳线涨幅（主板）
-    t_body_min_pct_kc = 2.5         # 决策日阳线涨幅（创/科/北）
-    t_vol_ratio = 1.5               # 决策日量比阈值
+    # === 量能放大参数 ===
+    vol_surge_lookback = 30         # 量能放大事件回看窗口
+    vol_surge_ratio = 2.0           # 量能放大阈值（基于该日前 20 日均量）
+    vol_base_window = 20            # 量能基线窗口
 
     # === 入场前置过滤 ===
     doubled_lookback = 60
     doubled_ratio = 1.8
 
+    # === 黄白线参数（与 indicators.py 一致） ===
+    # 趋势白 = EMA(EMA(C,10),10)
+    # 大哥黄 = (MA14 + MA28 + MA57 + MA114) / 4
+
     parameters = [
-        "lookback_v", "cooldown_min", "cooldown_max",
-        "down_lookback", "down_drawdown",
-        "v_body_min_pct", "v_body_min_pct_kc", "v_vol_ratio",
-        "washout_drop_pct", "washout_drop_vol_ratio",
-        "t_body_min_pct", "t_body_min_pct_kc", "t_vol_ratio",
+        "divergence_lookback", "divergence_min_gap",
+        "vol_surge_lookback", "vol_surge_ratio", "vol_base_window",
         "doubled_lookback", "doubled_ratio",
     ]
-    variables = ["v_low", "v_idx_date", "buy_price"]
+    variables = ["buy_price"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
-        self.v_low = 0.0
-        self.v_idx_date = ""
         self.buy_price = 0.0
-        self._pending_v_low = 0.0
-        self._pending_v_idx_date = ""
-        # 与 am.close_array 等长，索引一一对齐；预热前用空串占位
+        # 与 am.close_array 等长，索引一一对齐
         self._dt_buf: deque = deque(["" for _ in range(self.am.size)],
                                     maxlen=self.am.size)
 
@@ -87,15 +62,8 @@ class VMasterStrategy(BaseStrategy):
     # 数据维护
     # ------------------------------------------------------------------
     def on_bar(self, bar: BarData):
-        # 先把 datetime 推入 buf，与 am.update_bar 同步左移；这样在 execute_logic 里
-        # _dt_buf[i] 与 close_array[i] 永远一一对应
         self._dt_buf.append(bar.datetime.date().isoformat())
         super().on_bar(bar)
-
-    @staticmethod
-    def _is_kc_board(symbol: str) -> bool:
-        """30 / 68 / 8 开头的板块阳线门槛更高（涨跌停 ±20%）"""
-        return symbol.startswith("30") or symbol.startswith("68") or symbol.startswith("8")
 
     # ------------------------------------------------------------------
     # 主流程
@@ -103,254 +71,256 @@ class VMasterStrategy(BaseStrategy):
     def execute_logic(self, bar: BarData, can_sell: bool,
                       at_upper_limit: bool, at_lower_limit: bool):
         am = self.am
-        opens = am.open_array
-        highs = am.high_array
-        lows = am.low_array
         closes = am.close_array
         volumes = am.volume_array
-        n_total = len(closes)
-        T = n_total - 1
-        symbol = self.vt_symbol.split(".")[0]
-        is_kc = self._is_kc_board(symbol)
+        T = len(closes) - 1
 
         # ========== 卖出 ==========
         if self.pos > 0:
-            if can_sell and not at_lower_limit and self.v_low > 0:
-                if bar.close_price < self.v_low:
-                    reason = f"破V锚低点{self.v_low:.2f}"
-                    self.sell_stock(bar.close_price, abs(self.pos), reason=reason)
+            if can_sell and not at_lower_limit:
+                yellow = self._calc_yellow(closes, T)
+                white = self._calc_white(closes, T)
+                if yellow > 0 and white > 0:
+                    stop_line = min(yellow, white)
+                    if bar.close_price < stop_line:
+                        reason = f"跌破黄白线(黄{yellow:.2f}/白{white:.2f})"
+                        self.sell_stock(bar.close_price, abs(self.pos), reason=reason)
             return
 
         # ========== 买入 ==========
         if at_upper_limit:
             return
 
+        # 前置过滤：翻番
         if self._recently_doubled(closes):
             return
 
-        v_idx = self._find_v_anchor(
-            opens, highs, lows, closes, volumes, T,
-            lookback_v=self.lookback_v,
-            cooldown_min=self.cooldown_min,
-            cooldown_max=self.cooldown_max,
-            down_lookback=self.down_lookback,
-            down_drawdown=self.down_drawdown,
-            v_body_min_pct=self.v_body_min_pct_kc if is_kc else self.v_body_min_pct,
-            v_vol_ratio=self.v_vol_ratio,
-            limit_rate=self._get_limit_rate(),
-        )
-        if v_idx is None:
+        # 数据充足性检查
+        min_required = self.divergence_lookback + 30
+        count = int(am.count)
+        if count < min_required:
             return
 
-        if not self._check_washout(
-            opens, closes, lows, volumes, v_idx, T,
-            washout_drop_pct=self.washout_drop_pct,
-            washout_drop_vol_ratio=self.washout_drop_vol_ratio,
+        # 1. MACD 底背离
+        dif, dea, macd_bar = self._calc_macd(closes)
+        if not self._has_bottom_divergence(
+            closes, dif, macd_bar, T,
+            lookback=self.divergence_lookback,
+            min_gap=self.divergence_min_gap,
         ):
             return
 
-        ok, today_vr, ma5, ma10, ma20 = self._check_today_confirm(
-            opens, closes, volumes, v_idx, T,
-            t_body_min_pct=self.t_body_min_pct_kc if is_kc else self.t_body_min_pct,
-            t_vol_ratio=self.t_vol_ratio,
-            limit_rate=self._get_limit_rate(),
-        )
-        if not ok:
+        # 2. 量能放大事件
+        if not self._has_volume_surge(
+            volumes, T,
+            lookback=self.vol_surge_lookback,
+            ratio=self.vol_surge_ratio,
+            base_window=self.vol_base_window,
+        ):
             return
 
-        # 暂存 V 信息，T+1 成交回调里固化
-        self._pending_v_low = float(lows[v_idx])
-        self._pending_v_idx_date = self._dt_buf[v_idx] or ""
-        v_vr = self._vol_ratio(volumes, v_idx)
-        center_ratio = self._volume_center_ratio(volumes, v_idx, T)
-        reason = (f"v_master[V={self._pending_v_idx_date} V量比{v_vr:.1f} "
-                  f"今量比{today_vr:.1f} 量重移{center_ratio:.2f}x]")
-        self.buy_full(bar.close_price, reason=reason)
+        # 3. DIF 水上
+        if dif[T] <= 0:
+            return
+
+        # 4. 站稳黄白线
+        yellow = self._calc_yellow(closes, T)
+        white = self._calc_white(closes, T)
+        if yellow <= 0 or white <= 0:
+            return
+        if bar.close_price <= yellow or bar.close_price <= white:
+            return
+
+        # 5. 不能涨停
+        if T >= 1 and closes[T - 1] > 0:
+            limit = self._get_limit_rate()
+            day_pct = (bar.close_price - float(closes[T - 1])) / float(closes[T - 1])
+            if day_pct >= limit - 0.001:
+                return
+
+        # 入场
+        reason = (f"v_master[底背离+量能放大+DIF水上+站稳黄白 "
+                  f"DIF={dif[T]:.2f} 黄={yellow:.2f} 白={white:.2f}]")
+        self.buy_full(bar.close_price, reason)
 
     # ------------------------------------------------------------------
-    # 成交回调
+    # on_trade 覆盖
     # ------------------------------------------------------------------
     def on_trade(self, trade):
         super().on_trade(trade)
-        if trade.direction.value == "多":
-            self.buy_price = float(trade.price)
-            self.v_low = self._pending_v_low
-            self.v_idx_date = self._pending_v_idx_date
-            self._pending_v_low = 0.0
-            self._pending_v_idx_date = ""
+        is_buy = trade.direction.value == "多"
+        if is_buy:
+            self.buy_price = trade.price
         else:
-            self.v_low = 0.0
-            self.v_idx_date = ""
             self.buy_price = 0.0
-            self._pending_v_low = 0.0
-            self._pending_v_idx_date = ""
 
     # ------------------------------------------------------------------
-    # 私有助手（实例方法，依赖类参数）
+    # MACD 计算
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _calc_macd(closes: np.ndarray):
+        """计算 MACD 三件套，返回 (dif, dea, macd_bar) 全长度数组。"""
+        n = len(closes)
+        ema12 = np.zeros(n)
+        ema26 = np.zeros(n)
+        ema12[0] = closes[0]
+        ema26[0] = closes[0]
+        m12 = 2.0 / 13.0
+        m26 = 2.0 / 27.0
+        for i in range(1, n):
+            ema12[i] = ema12[i - 1] + m12 * (closes[i] - ema12[i - 1])
+            ema26[i] = ema26[i - 1] + m26 * (closes[i] - ema26[i - 1])
+        dif = ema12 - ema26
+        dea = np.zeros(n)
+        dea[0] = dif[0]
+        m9 = 2.0 / 10.0
+        for i in range(1, n):
+            dea[i] = dea[i - 1] + m9 * (dif[i] - dea[i - 1])
+        macd_bar = (dif - dea) * 2
+        return dif, dea, macd_bar
+
+    # ------------------------------------------------------------------
+    # MACD 底背离判定
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _has_bottom_divergence(closes: np.ndarray, dif: np.ndarray,
+                               macd_bar: np.ndarray, T: int,
+                               lookback: int = 60, min_gap: int = 5) -> bool:
+        """检查 [T-lookback, T] 内是否存在 MACD 底背离。
+
+        底背离定义（任一成立）：
+        A) DIF 底背离：存在两个价格低点 L1(早) L2(晚)，close[L2] ≤ close[L1] 且 DIF[L2] > DIF[L1]
+        B) MACD 柱底背离：存在两个绿柱谷底 G1(早) G2(晚)，close[G2] ≤ close[G1] 且 macd_bar[G2] > macd_bar[G1]
+        """
+        start = max(1, T - lookback)
+        if T - start < min_gap * 2:
+            return False
+
+        # 找区间内的局部低点（close 维度）
+        lows = []
+        for i in range(start + 1, T):
+            if closes[i] <= closes[i - 1] and closes[i] <= closes[i + 1]:
+                lows.append(i)
+
+        # A) DIF 底背离
+        for i in range(len(lows)):
+            for j in range(i + 1, len(lows)):
+                l1, l2 = lows[i], lows[j]
+                if l2 - l1 < min_gap:
+                    continue
+                if closes[l2] <= closes[l1] and dif[l2] > dif[l1]:
+                    return True
+
+        # B) MACD 柱底背离（绿柱谷底）
+        green_valleys = []
+        for i in range(start + 1, T):
+            if macd_bar[i] < 0 and macd_bar[i] <= macd_bar[i - 1] and macd_bar[i] <= macd_bar[i + 1]:
+                green_valleys.append(i)
+
+        for i in range(len(green_valleys)):
+            for j in range(i + 1, len(green_valleys)):
+                g1, g2 = green_valleys[i], green_valleys[j]
+                if g2 - g1 < min_gap:
+                    continue
+                if closes[g2] <= closes[g1] and macd_bar[g2] > macd_bar[g1]:
+                    return True
+
+        return False
+
+    # ------------------------------------------------------------------
+    # 量能放大事件
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _has_volume_surge(volumes: np.ndarray, T: int,
+                         lookback: int = 30, ratio: float = 2.0,
+                         base_window: int = 20) -> bool:
+        """检查 [T-lookback, T] 内是否存在量能放大事件。"""
+        start = max(base_window, T - lookback)
+        for i in range(start, T + 1):
+            base_start = max(0, i - base_window)
+            base = volumes[base_start:i]
+            valid = base[base > 0]
+            if len(valid) < 5:
+                continue
+            avg = float(np.mean(valid))
+            if avg > 0 and volumes[i] / avg >= ratio:
+                return True
+        return False
+
+    @staticmethod
+    def _find_vol_surge_day(volumes: np.ndarray, T: int,
+                           lookback: int = 30, base_window: int = 20) -> int:
+        """找到最近的量能放大日索引（按量比最大者）。"""
+        start = max(base_window, T - lookback)
+        best_idx = T
+        best_ratio = 0.0
+        for i in range(start, T + 1):
+            base_start = max(0, i - base_window)
+            base = volumes[base_start:i]
+            valid = base[base > 0]
+            if len(valid) < 5:
+                continue
+            avg = float(np.mean(valid))
+            if avg > 0:
+                r = volumes[i] / avg
+                if r > best_ratio:
+                    best_ratio = r
+                    best_idx = i
+        return best_idx
+
+    # ------------------------------------------------------------------
+    # 黄白线计算
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _calc_white(closes: np.ndarray, T: int) -> float:
+        """趋势白 = EMA(EMA(C,10),10)，返回 T 位置的值。"""
+        n = T + 1
+        if n < 20:
+            return 0.0
+        m = 2.0 / 11.0
+        ema1 = np.zeros(n)
+        ema1[0] = closes[0]
+        for i in range(1, n):
+            ema1[i] = ema1[i - 1] + m * (closes[i] - ema1[i - 1])
+        ema2 = np.zeros(n)
+        ema2[0] = ema1[0]
+        for i in range(1, n):
+            ema2[i] = ema2[i - 1] + m * (ema1[i] - ema2[i - 1])
+        return float(ema2[T])
+
+    @staticmethod
+    def _calc_yellow(closes: np.ndarray, T: int) -> float:
+        """大哥黄 = (MA14 + MA28 + MA57 + MA114) / 4，返回 T 位置的值。"""
+        n = T + 1
+        if n < 114:
+            return 0.0
+        total = 0.0
+        for w in (14, 28, 57, 114):
+            if n < w:
+                return 0.0
+            total += float(np.mean(closes[T - w + 1: T + 1]))
+        return total / 4.0
+
+    # ------------------------------------------------------------------
+    # 翻番过滤
     # ------------------------------------------------------------------
     def _recently_doubled(self, closes: np.ndarray) -> bool:
         n = self.doubled_lookback
         if n <= 0 or len(closes) < n:
             return False
-        window = closes[-n:]
-        win_low = float(np.min(window))
-        if win_low <= 0:
+        win = closes[-n:]
+        valid = win[win > 0]
+        if len(valid) < 2:
             return False
-        win_high = float(np.max(window))
-        return win_high / win_low >= self.doubled_ratio
+        return float(np.max(valid)) / float(np.min(valid)) >= self.doubled_ratio
 
     # ------------------------------------------------------------------
-    # 静态判定函数（策略层 + 扫描器共用，签名统一接收 numpy 数组）
+    # 工具
     # ------------------------------------------------------------------
     @staticmethod
-    def min_bars_required(lookback_v: int = 60, down_lookback: int = 60) -> int:
-        """数据下限：V 锚需要 lookback_v 之前的 down_lookback 高点 + 5 日量基线 + 余量"""
-        return max(lookback_v + 25, down_lookback + 20)
+    def min_bars_required(divergence_lookback: int = 60) -> int:
+        return divergence_lookback + 114  # 黄线需要 114 根
 
     @staticmethod
-    def _vol_ratio(volumes: np.ndarray, i: int, window: int = 5) -> float:
-        if i < window:
-            return 0.0
-        base = float(np.mean(volumes[i - window:i]))
-        return float(volumes[i] / base) if base > 0 else 0.0
-
-    @staticmethod
-    def _ma(closes: np.ndarray, i: int, period: int) -> float:
-        if i + 1 < period:
-            return 0.0
-        return float(np.mean(closes[i + 1 - period:i + 1]))
-
-    @staticmethod
-    def _volume_center_ratio(volumes: np.ndarray, v_idx: int, T: int) -> float:
-        """决策日近 5 日均量 / V 锚之前 20 日均量"""
-        if v_idx < 20 or T < 4:
-            return 0.0
-        base = float(np.mean(volumes[v_idx - 20:v_idx]))
-        if base <= 0:
-            return 0.0
-        recent = float(np.mean(volumes[T - 4:T + 1]))
-        return recent / base
-
-    @staticmethod
-    def _find_v_anchor(opens: np.ndarray, highs: np.ndarray, lows: np.ndarray,
-                       closes: np.ndarray, volumes: np.ndarray, T: int,
-                       *,
-                       lookback_v: int, cooldown_min: int, cooldown_max: int,
-                       down_lookback: int, down_drawdown: float,
-                       v_body_min_pct: float, v_vol_ratio: float,
-                       limit_rate: float):
-        """在 [T-cooldown_max, T-cooldown_min] 窗口内找最早的 V 锚 idx；找不到返回 None。"""
-        n_total = len(closes)
-        min_required = max(lookback_v + 25, down_lookback + 20)
-        if n_total < min_required or T <= 0:
-            return None
-
-        lo = max(down_lookback, T - cooldown_max, T - lookback_v)
-        hi = T - cooldown_min  # 闭区间上界
-        if lo > hi:
-            return None
-
-        limit_threshold = limit_rate * 100 - 0.1  # 涨停判定（百分比）
-
-        for i in range(lo, hi + 1):
-            o = float(opens[i]); c = float(closes[i])
-            if o <= 0 or c <= 0:
-                continue
-            # b) 阳线 + 实体涨幅
-            if c <= o:
-                continue
-            body_pct = (c - o) / o * 100
-            if body_pct < v_body_min_pct:
-                continue
-            # d) 不能涨停（按昨收）
-            if i >= 1 and closes[i - 1] > 0:
-                day_pct = (c - float(closes[i - 1])) / float(closes[i - 1]) * 100
-                if day_pct >= limit_threshold:
-                    continue
-            # a) 下跌语境
-            high_window_lo = i - down_lookback
-            if high_window_lo < 0:
-                continue
-            prev_high = float(np.max(highs[high_window_lo:i]))
-            if prev_high <= 0:
-                continue
-            if c > prev_high * (1 - down_drawdown / 100.0):
-                continue
-            # c) 巨量
-            vr = VMasterStrategy._vol_ratio(volumes, i)
-            if vr < v_vol_ratio:
-                continue
-            return i
-        return None
-
-    @staticmethod
-    def _check_washout(opens: np.ndarray, closes: np.ndarray, lows: np.ndarray,
-                       volumes: np.ndarray, v_idx: int, T: int,
-                       *,
-                       washout_drop_pct: float,
-                       washout_drop_vol_ratio: float) -> bool:
-        """洗盘期 [v_idx+1..T-1]：不破 v_idx 低点 + 无放量大阴。"""
-        if T - v_idx < 2:
-            # 至少要有 1 根洗盘 bar
-            return False
-        v_low = float(lows[v_idx])
-        if v_low <= 0:
-            return False
-        for j in range(v_idx + 1, T):
-            if float(lows[j]) < v_low:
-                return False
-            o = float(opens[j]); c = float(closes[j])
-            if o <= 0:
-                continue
-            drop_pct = (o - c) / o * 100  # 阴线为正
-            if drop_pct > washout_drop_pct:
-                vr = VMasterStrategy._vol_ratio(volumes, j)
-                if vr > washout_drop_vol_ratio:
-                    return False
-        return True
-
-    @staticmethod
-    def _check_today_confirm(opens: np.ndarray, closes: np.ndarray,
-                             volumes: np.ndarray, v_idx: int, T: int,
-                             *,
-                             t_body_min_pct: float, t_vol_ratio: float,
-                             limit_rate: float):
-        """决策日 T 二次启动确认。返回 (ok, today_vol_ratio, ma5, ma10, ma20)。"""
-        zero = (False, 0.0, 0.0, 0.0, 0.0)
-        if T < 20:
-            return zero
-        o = float(opens[T]); c = float(closes[T])
-        if o <= 0 or c <= 0:
-            return zero
-        # a) 阳线 + 涨幅
-        if c <= o:
-            return zero
-        body_pct = (c - o) / o * 100
-        if body_pct < t_body_min_pct:
-            return zero
-        # f) 不能涨停（按昨收）
-        if T >= 1 and closes[T - 1] > 0:
-            day_pct = (c - float(closes[T - 1])) / float(closes[T - 1]) * 100
-            if day_pct >= limit_rate * 100 - 0.1:
-                return zero
-        # b) 量比
-        today_vr = VMasterStrategy._vol_ratio(volumes, T)
-        if today_vr < t_vol_ratio:
-            return zero
-        # c) 站上 MA5
-        ma5 = VMasterStrategy._ma(closes, T, 5)
-        if ma5 <= 0 or c < ma5:
-            return zero
-        # d) 量能重心上移
-        center = VMasterStrategy._volume_center_ratio(volumes, v_idx, T)
-        if center <= 1.0:
-            return zero
-        # e) 均线翻多 + MA10 拐头向上
-        ma10 = VMasterStrategy._ma(closes, T, 10)
-        ma20 = VMasterStrategy._ma(closes, T, 20)
-        ma10_prev = VMasterStrategy._ma(closes, T - 1, 10)
-        if ma10 <= 0 or ma20 <= 0 or ma10_prev <= 0:
-            return zero
-        if not (ma10 > ma20 and ma10 > ma10_prev):
-            return zero
-        return True, today_vr, ma5, ma10, ma20
+    def _is_kc_board(symbol: str) -> bool:
+        return symbol.startswith("30") or symbol.startswith("68") or symbol.startswith("8")

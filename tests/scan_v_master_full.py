@@ -89,91 +89,93 @@ def check_one(args: tuple):
     if last_date != end_date:
         return None
 
-    opens = df[KLineConstants.OPEN].values.astype(float)
-    highs = df[KLineConstants.HIGH].values.astype(float)
-    lows = df[KLineConstants.LOW].values.astype(float)
     closes = df[KLineConstants.CLOSE].values.astype(float)
     volumes = df[KLineConstants.VOLUME].values.astype(float)
     n_total = len(closes)
 
-    min_required = VMasterStrategy.min_bars_required(
-        VMasterStrategy.lookback_v, VMasterStrategy.down_lookback
-    )
+    min_required = VMasterStrategy.min_bars_required(VMasterStrategy.divergence_lookback)
     if n_total < min_required:
         return None
 
     T = n_total - 1
-    is_kc = VMasterStrategy._is_kc_board(symbol)
+    cur_close = float(closes[T])
     limit_rate = _limit_rate(symbol, is_st=False)
 
-    # 当日涨停（一字板）排除
+    # 涨停排除
     if T >= 1 and closes[T - 1] > 0:
-        day_pct = (closes[T] - closes[T - 1]) / closes[T - 1] * 100
-        if day_pct >= limit_rate * 100 - 0.1:
+        day_pct = (closes[T] - closes[T - 1]) / closes[T - 1]
+        if day_pct >= limit_rate - 0.001:
             return None
 
     # 翻番过滤
     n = VMasterStrategy.doubled_lookback
     if n > 0 and n_total >= n:
         win = closes[-n:]
-        wlow = float(np.min(win))
-        whigh = float(np.max(win))
-        if wlow > 0 and whigh / wlow >= VMasterStrategy.doubled_ratio:
-            return None
+        valid = win[win > 0]
+        if len(valid) >= 2:
+            wmin = float(np.min(valid))
+            wmax = float(np.max(valid))
+            if wmin > 0 and wmax / wmin >= VMasterStrategy.doubled_ratio:
+                return None
 
-    # V 锚
-    v_idx = VMasterStrategy._find_v_anchor(
-        opens, highs, lows, closes, volumes, T,
-        lookback_v=VMasterStrategy.lookback_v,
-        cooldown_min=VMasterStrategy.cooldown_min,
-        cooldown_max=VMasterStrategy.cooldown_max,
-        down_lookback=VMasterStrategy.down_lookback,
-        down_drawdown=VMasterStrategy.down_drawdown,
-        v_body_min_pct=(VMasterStrategy.v_body_min_pct_kc if is_kc
-                        else VMasterStrategy.v_body_min_pct),
-        v_vol_ratio=VMasterStrategy.v_vol_ratio,
-        limit_rate=limit_rate,
-    )
-    if v_idx is None:
-        return None
+    # MACD
+    dif, dea, macd_bar = VMasterStrategy._calc_macd(closes)
 
-    # 洗盘期
-    if not VMasterStrategy._check_washout(
-        opens, closes, lows, volumes, v_idx, T,
-        washout_drop_pct=VMasterStrategy.washout_drop_pct,
-        washout_drop_vol_ratio=VMasterStrategy.washout_drop_vol_ratio,
+    # 1. 底背离
+    if not VMasterStrategy._has_bottom_divergence(
+        closes, dif, macd_bar, T,
+        lookback=VMasterStrategy.divergence_lookback,
+        min_gap=VMasterStrategy.divergence_min_gap,
     ):
         return None
 
-    # 决策日
-    ok, today_vr, ma5, ma10, ma20 = VMasterStrategy._check_today_confirm(
-        opens, closes, volumes, v_idx, T,
-        t_body_min_pct=(VMasterStrategy.t_body_min_pct_kc if is_kc
-                        else VMasterStrategy.t_body_min_pct),
-        t_vol_ratio=VMasterStrategy.t_vol_ratio,
-        limit_rate=limit_rate,
-    )
-    if not ok:
+    # 2. 量能放大
+    if not VMasterStrategy._has_volume_surge(
+        volumes, T,
+        lookback=VMasterStrategy.vol_surge_lookback,
+        ratio=VMasterStrategy.vol_surge_ratio,
+        base_window=VMasterStrategy.vol_base_window,
+    ):
         return None
 
-    v_vr = VMasterStrategy._vol_ratio(volumes, v_idx)
-    v_low = float(lows[v_idx])
-    v_idx_date = df[KLineConstants.DATE].iloc[v_idx].date().isoformat()
-    cur_close = float(closes[T])
+    # 3. DIF 水上
+    if dif[T] <= 0:
+        return None
+
+    # 4. 站稳黄白
+    yellow = VMasterStrategy._calc_yellow(closes, T)
+    white = VMasterStrategy._calc_white(closes, T)
+    if yellow <= 0 or white <= 0:
+        return None
+    if cur_close <= yellow or cur_close <= white:
+        return None
+
+    # 量能放大日详情
+    surge_idx = VMasterStrategy._find_vol_surge_day(
+        volumes, T,
+        lookback=VMasterStrategy.vol_surge_lookback,
+        base_window=VMasterStrategy.vol_base_window,
+    )
+    surge_date = df[KLineConstants.DATE].iloc[surge_idx].date().isoformat()
+    base_start = max(0, surge_idx - VMasterStrategy.vol_base_window)
+    base_avg = float(np.mean(volumes[base_start:surge_idx]))
+    surge_ratio = float(volumes[surge_idx] / base_avg) if base_avg > 0 else 0.0
 
     return {
         "symbol": symbol,
         "name": name_map.get(symbol, symbol),
         "match_date": end_date,
         "close": round(cur_close, 2),
-        "v_idx_date": v_idx_date,
-        "v_low": round(v_low, 2),
-        "v_vol_ratio": round(v_vr, 2),
-        "today_vol_ratio": round(today_vr, 2),
+        "dif": round(float(dif[T]), 3),
+        "dea": round(float(dea[T]), 3),
+        "yellow": round(yellow, 2),
+        "white": round(white, 2),
+        "vol_surge_date": surge_date,
+        "vol_surge_ratio": round(surge_ratio, 2),
         "indicators": {
-            "ma5": round(ma5, 2),
-            "ma10": round(ma10, 2),
-            "ma20": round(ma20, 2),
+            "macd_bar": round(float(macd_bar[T]), 3),
+            "above_yellow_pct": round((cur_close - yellow) / yellow * 100, 2),
+            "above_white_pct": round((cur_close - white) / white * 100, 2),
         },
     }
 
@@ -205,8 +207,8 @@ def main():
                 print(f"  进度 {done}/{len(tasks)}  命中 {len(results)}  "
                       f"{rate:.1f}/s  ETA {eta:.0f}s", flush=True)
 
-    # V 锚量比越大越靠前
-    results.sort(key=lambda x: -x["v_vol_ratio"])
+    # 量能放大倍数越大越靠前
+    results.sort(key=lambda x: -x["vol_surge_ratio"])
 
     folder = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                           "selected", args.date)
@@ -223,9 +225,8 @@ def main():
         json.dump(out, f, ensure_ascii=False, indent=2)
     print(f"\n命中 {len(results)} 只，已保存到 {out_path}")
     for r in results[:30]:
-        print(f"  {r['symbol']}  V量比{r['v_vol_ratio']}  close={r['close']}  "
-              f"V锚={r['v_idx_date']} V低={r['v_low']}  今量比{r['today_vol_ratio']}  "
-              f"MA5={r['indicators']['ma5']} MA10={r['indicators']['ma10']} MA20={r['indicators']['ma20']}")
+        print(f"  {r['symbol']} {r['name']}  量能放大{r['vol_surge_ratio']}x@{r['vol_surge_date']}  "
+              f"close={r['close']}  DIF={r['dif']}  黄={r['yellow']} 白={r['white']}")
 
 
 if __name__ == "__main__":
