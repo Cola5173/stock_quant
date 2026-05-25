@@ -46,6 +46,11 @@ def cmd_advisor(args):
         print("邮件已发送")
 
 
+def cmd_monitor(args):
+    from api.monitor.reporter import run_monitor
+    run_monitor(notify=not args.no_email)
+
+
 def main():
     parser = argparse.ArgumentParser(description="A 股量化交易平台")
     sub = parser.add_subparsers(dest="command")
@@ -55,9 +60,14 @@ def main():
     p_adv.add_argument("--no-email", action="store_true", help="仅生成决策不发邮件")
     p_adv.add_argument("--email-only", action="store_true", help="用已有决策文件仅发邮件")
 
+    p_mon = sub.add_parser("monitor", help="核心仓监控（比例偏离 + PE 分位）")
+    p_mon.add_argument("--no-email", action="store_true", help="仅终端输出，不发邮件")
+
     args = parser.parse_args()
     if args.command == "advisor":
         cmd_advisor(args)
+    elif args.command == "monitor":
+        cmd_monitor(args)
     else:
         parser.print_help()
 

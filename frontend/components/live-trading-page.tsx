@@ -118,7 +118,7 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
     return <div className="flex items-center justify-center h-full text-zinc-500">加载失败</div>;
   }
 
-  const positionsData = data?.positions as { total_capital?: number; positions?: Array<Record<string, unknown>> } | null;
+  const positionsData = data?.positions as { total_capital?: number; available_cash?: number; positions?: Array<Record<string, unknown>> } | null;
   const positions = (positionsData?.positions ?? []).map((p) => ({
     symbol: String(p.symbol ?? ""),
     name: String(p.name ?? ""),
@@ -127,6 +127,7 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
     buy_date: String(p.buy_date ?? ""),
   }));
   const totalCapital = positionsData?.total_capital ?? 100000;
+  const availableCash = positionsData?.available_cash ?? totalCapital;
 
   const decision = data?.decision as Record<string, unknown> | null;
   const holdings = (decision?.holdings ?? []) as Array<Record<string, unknown>>;
@@ -144,7 +145,7 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
       : p.cost_price;
     return sum + p.shares * price;
   }, 0);
-  const totalPositionPct = totalCapital > 0 ? (totalMarketValue / totalCapital) * 100 : 0;
+  const totalPositionPct = availableCash > 0 ? (totalMarketValue / (availableCash)) * 100 : 0;
 
   return (
     <div className="h-full overflow-y-auto space-y-4">
@@ -187,7 +188,7 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
                 {totalPositionPct.toFixed(1)}%
               </span>
               <span className="text-zinc-600 ml-2">
-                市值 {totalMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} / 现金 {(totalCapital - totalMarketValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                市值 {totalMarketValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} / 现金 {(availableCash - totalMarketValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </span>
             </span>
           </div>
@@ -367,6 +368,7 @@ function LiveTradingMain({ strategy, onChangeStrategy }: { strategy: string; onC
         <AddTransactionModal
           onClose={() => setAddTxModalOpen(false)}
           onSubmit={(tx) => addTxMutation.mutate(tx)}
+          positions={positions}
         />
       )}
 
@@ -464,9 +466,11 @@ function SymbolSearchInput({ value, onChange }: { value: string; onChange: (code
 function AddTransactionModal({
   onClose,
   onSubmit,
+  positions,
 }: {
   onClose: () => void;
   onSubmit: (tx: Record<string, unknown>) => void;
+  positions: Array<{ symbol: string; name: string; shares: number; cost_price: number; buy_date: string }>;
 }) {
   const [type, setType] = useState<"B" | "S">("B");
   const [symbol, setSymbol] = useState("");
@@ -474,6 +478,15 @@ function AddTransactionModal({
   const [price, setPrice] = useState(10);
   const [tradeDate, setTradeDate] = useState(new Date().toISOString().slice(0, 10));
   const [error, setError] = useState("");
+
+  const handlePositionSelect = (sym: string) => {
+    setSymbol(sym);
+    const pos = positions.find((p) => p.symbol === sym);
+    if (pos) {
+      setShares(pos.shares);
+      setPrice(pos.cost_price);
+    }
+  };
 
   const handleSubmit = () => {
     if (!symbol || !/^\d{6}$/.test(symbol)) {
@@ -505,7 +518,7 @@ function AddTransactionModal({
             <label className="text-xs text-zinc-500 mb-1.5 block">类型</label>
             <div className="flex gap-2">
               <button
-                onClick={() => setType("B")}
+                onClick={() => { setType("B"); setSymbol(""); setShares(100); setPrice(10); }}
                 className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   type === "B"
                     ? "bg-green-600 text-white"
@@ -515,7 +528,7 @@ function AddTransactionModal({
                 买入 (B)
               </button>
               <button
-                onClick={() => setType("S")}
+                onClick={() => { setType("S"); setSymbol(""); setShares(100); setPrice(10); }}
                 className={`flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                   type === "S"
                     ? "bg-red-600 text-white"
@@ -528,7 +541,22 @@ function AddTransactionModal({
           </div>
           <div>
             <label className="text-xs text-zinc-500 mb-1.5 block">代码</label>
-            <SymbolSearchInput value={symbol} onChange={setSymbol} />
+            {type === "S" && positions.length > 0 ? (
+              <select
+                value={symbol}
+                onChange={(e) => handlePositionSelect(e.target.value)}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+              >
+                <option value="">选择持仓</option>
+                {positions.map((p) => (
+                  <option key={p.symbol} value={p.symbol}>
+                    {p.name} ({p.symbol}) — {p.shares}股
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <SymbolSearchInput value={symbol} onChange={setSymbol} />
+            )}
           </div>
           <div>
             <label className="text-xs text-zinc-500 mb-1.5 block">股数</label>

@@ -12,9 +12,9 @@ export function ScreeningPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [showRunModal, setShowRunModal] = useState(false);
-  const [runningTask, setRunningTask] = useState<string | null>(null);
+  const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevStatusRef = useRef<string | null>(null);
 
   const { data: strategies = [] } = useQuery({ queryKey: ["strategies"], queryFn: api.strategies });
 
@@ -28,37 +28,50 @@ export function ScreeningPage() {
     queryFn: () => api.selectedRecords(activeStrategy),
   });
 
-  // 清理轮询
-  useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+  // 任务状态轮询：有 runningTaskId 时每 2s 查一次，完成后自动停止
+  const taskQuery = useQuery({
+    queryKey: ["scan-task", runningTaskId],
+    queryFn: () => api.scanTaskStatus(runningTaskId!),
+    enabled: !!runningTaskId,
+    refetchInterval: (q) => {
+      const status = q.state.data?.status;
+      if (status === "done" || status === "error") return false;
+      return 2000;
+    },
+  });
+
+  // 任务完成/失败时的副作用
+  useEffect(() => {
+    if (!taskQuery.data || !runningTaskId) return;
+    const { status } = taskQuery.data;
+    if (status === prevStatusRef.current) return;
+    prevStatusRef.current = status;
+
+    if (status === "done") {
+      showToast("success", `选股完成：${taskQuery.data.date} 命中 ${taskQuery.data.candidates_count} 只`);
+      queryClient.invalidateQueries({ queryKey: ["selected-records", activeStrategy] });
+      setSelectedDate(taskQuery.data.date ?? null);
+      setRunningTaskId(null);
+    } else if (status === "error") {
+      showToast("error", `选股失败：${taskQuery.data.error}`);
+      setRunningTaskId(null);
+    }
+  }, [taskQuery.data, runningTaskId]);
+
+  // 网络错误时停止轮询
+  useEffect(() => {
+    if (taskQuery.isError && runningTaskId) {
+      setRunningTaskId(null);
+    }
+  }, [taskQuery.isError, runningTaskId]);
 
   const handleSubmitScan = async (strategy: string, date?: string) => {
     try {
       const res = await api.runScan(strategy, date);
       setShowRunModal(false);
-      setRunningTask(res.task_id);
+      setRunningTaskId(res.task_id);
       setActiveStrategy(strategy);
-
-      // 轮询任务状态
-      pollRef.current = setInterval(async () => {
-        try {
-          const task = await api.scanTaskStatus(res.task_id);
-          if (task.status === "done") {
-            if (pollRef.current) clearInterval(pollRef.current);
-            setRunningTask(null);
-            showToast("success", `选股完成：${task.date} 命中 ${task.candidates_count} 只`);
-            queryClient.invalidateQueries({ queryKey: ["selected-records", strategy] });
-            setSelectedDate(task.date ?? null);
-          } else if (task.status === "error") {
-            if (pollRef.current) clearInterval(pollRef.current);
-            setRunningTask(null);
-            showToast("error", `选股失败：${task.error}`);
-          }
-        } catch {
-          // 404 或网络错误 → 停止轮询（任务可能因服务重启丢失）
-          if (pollRef.current) clearInterval(pollRef.current);
-          setRunningTask(null);
-        }
-      }, 2000);
+      prevStatusRef.current = null;
     } catch (err: unknown) {
       showToast("error", `提交失败：${err instanceof Error ? err.message : String(err)}`);
     }
@@ -93,11 +106,11 @@ export function ScreeningPage() {
         ))}
         <button
           onClick={() => setShowRunModal(true)}
-          disabled={!!runningTask}
+          disabled={!!runningTaskId}
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
         >
-          {runningTask ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-          {runningTask ? "扫描中..." : "执行选股"}
+          {runningTaskId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+          {runningTaskId ? "扫描中..." : "执行选股"}
         </button>
       </div>
 

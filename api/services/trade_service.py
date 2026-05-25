@@ -167,14 +167,33 @@ def _sync_positions_cache(state: dict) -> None:
     _atomic_write_json(settings.POSITIONS_FILE, cache)
 
 
+def _calc_available_cash(total_capital: float, transactions: List[dict]) -> float:
+    """从交易流水计算可用现金：初始资金 - 买入成本 + 卖出收入"""
+    cash = total_capital
+    for tx in transactions:
+        kind = (tx.get("type") or "").upper()
+        shares = int(tx.get("shares") or 0)
+        price = float(tx.get("price") or 0)
+        if shares <= 0 or price <= 0:
+            continue
+        if kind == "B":
+            cash -= price * shares
+        elif kind == "S":
+            cash += price * shares
+    return round(cash, 2)
+
+
 def get_state() -> dict:
-    """返回 { total_capital, transactions, positions }（positions 是派生缓存）"""
+    """返回 { total_capital, available_cash, transactions, positions }"""
     with _lock:
         state = _read_transactions()
+    total_capital = state.get("total_capital", DEFAULT_TOTAL_CAPITAL)
+    transactions = state.get("transactions", [])
     return {
-        "total_capital": state.get("total_capital", DEFAULT_TOTAL_CAPITAL),
-        "transactions": state.get("transactions", []),
-        "positions": derive_positions(state.get("transactions", [])),
+        "total_capital": total_capital,
+        "available_cash": _calc_available_cash(total_capital, transactions),
+        "transactions": transactions,
+        "positions": derive_positions(transactions),
     }
 
 

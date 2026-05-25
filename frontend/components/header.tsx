@@ -1,12 +1,14 @@
 "use client";
 
 import { LineChart, RefreshCw, Loader2 } from "lucide-react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 
 export function Header({ subtitle, dateRange }: { subtitle?: string; dateRange?: string }) {
   const [now, setNow] = useState<string>("");
+  const queryClient = useQueryClient();
+  const wasRunningRef = useRef(false);
 
   useEffect(() => {
     const tick = () => {
@@ -32,6 +34,16 @@ export function Header({ subtitle, dateRange }: { subtitle?: string; dateRange?:
   const running = !!statusQuery.data?.running;
   const lastError = statusQuery.data?.error;
   const lastFinishedAt = statusQuery.data?.finished_at;
+
+  useEffect(() => {
+    if (running) {
+      wasRunningRef.current = true;
+    } else if (wasRunningRef.current) {
+      wasRunningRef.current = false;
+      queryClient.invalidateQueries({ queryKey: ["selected-records"] });
+      queryClient.invalidateQueries({ queryKey: ["selected-detail"] });
+    }
+  }, [running, queryClient]);
 
   return (
     <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-zinc-800 bg-zinc-950">

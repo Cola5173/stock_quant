@@ -21,6 +21,7 @@ def advisor_latest():
     state = trade_service.get_state()
     positions_payload = {
         "total_capital": state["total_capital"],
+        "available_cash": state["available_cash"],
         "positions": state["positions"],
     }
     decision = _load_latest_decision()
