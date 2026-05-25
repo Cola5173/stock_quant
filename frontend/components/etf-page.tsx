@@ -15,10 +15,7 @@ const ETF_META: Record<EtfKey, { label: string; ratio: number; valuationLabel: s
 const ETF_ORDER: EtfKey[] = ["nasdaq", "gold", "dividend", "csi300"];
 
 function getWeight(percentile: number): number {
-  if (percentile < 30) return 1.5;
-  if (percentile < 70) return 1.0;
-  if (percentile < 90) return 0.5;
-  return 0;
+  return Math.max(0, (90 - percentile) / 40);
 }
 
 function getZoneLabel(percentile: number): { text: string; color: string } {

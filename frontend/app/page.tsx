@@ -42,6 +42,15 @@ function getFetchStart(displayStart: string): string {
 
 export default function HomePage() {
   const [navActive, setNavActive] = useNav();
+  const [resetKey, setResetKey] = useState(0);
+
+  const handleNavChange = (k: typeof navActive) => {
+    if (k === navActive) {
+      setResetKey((prev) => prev + 1);
+    } else {
+      setNavActive(k);
+    }
+  };
 
   // K线图表 tab 状态（默认上证指数）
   const DEFAULT_INDEX: StockItem = { code: "idx_000001_SH", name: "上证指数", label: "上证指数 (000001.SH)", exchange: "SH" };
@@ -98,7 +107,7 @@ export default function HomePage() {
 
   return (
     <div className="flex flex-1 min-h-0">
-      <Sidebar active={navActive} onChange={setNavActive} />
+      <Sidebar active={navActive} onChange={handleNavChange} />
       <div className="flex-1 flex flex-col min-w-0">
         <Header subtitle={subtitle} />
         <main className="flex-1 overflow-hidden p-6">
@@ -236,7 +245,7 @@ export default function HomePage() {
 
           {/* ETF 定投计算器 */}
           {navActive === "etf" && (
-            <EtfPage />
+            <EtfPage key={resetKey} />
           )}
 
           {/* 设置 */}
