@@ -99,11 +99,58 @@ def run_scan(strategy: str, date: str = None) -> Dict[str, Any]:
 
 @router.get("/task/{task_id}")
 def get_task_status(task_id: str) -> Dict[str, Any]:
-    """查询异步选股任务状态"""
+    """查询异步选股任务状态。
+
+    如果内存中找不到任务（服务器重启/多 worker），尝试从文件系统推断状态：
+    - 扫描 selected/ 目录，找最近 3 天内的结果文件
+    - 如果找到匹配的策略结果，返回 done 状态
+    - 否则返回 404
+    """
     task = _tasks.get(task_id)
-    if task is None:
-        raise HTTPException(404, "任务不存在")
-    return task
+    if task is not None:
+        return task
+
+    # 内存中找不到，尝试从文件系统推断（容错：服务器重启/多 worker）
+    # 扫描最近 3 天的 selected/{date}/ 目录
+    from datetime import datetime, timedelta
+    selected_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "..", "selected"
+    )
+    if not os.path.isdir(selected_dir):
+        raise HTTPException(404, "任务不存在且无法从文件推断")
+
+    # 生成最近 3 天的日期列表
+    today = datetime.now().date()
+    dates = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(3)]
+
+    # 遍历所有策略，检查是否有最近的结果文件
+    for date_str in dates:
+        date_dir = os.path.join(selected_dir, date_str)
+        if not os.path.isdir(date_dir):
+            continue
+        for strategy_file in os.listdir(date_dir):
+            if not strategy_file.endswith(".json"):
+                continue
+            strategy = strategy_file.replace(".json", "")
+            file_path = os.path.join(date_dir, strategy_file)
+            # 检查文件修改时间是否在最近 10 分钟内（推断为刚完成的任务）
+            if os.path.getmtime(file_path) > (datetime.now().timestamp() - 600):
+                try:
+                    import json
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    return {
+                        "status": "done",
+                        "strategy": strategy,
+                        "date": date_str,
+                        "candidates_count": data.get("candidates_count", 0),
+                        "recovered": True,  # 标记为从文件恢复的状态
+                    }
+                except Exception:
+                    pass
+
+    raise HTTPException(404, "任务不存在且无法从文件推断")
 
 
 def _run_scan_worker(task_id: str, strategy: str, date: str, lock: threading.Lock):
