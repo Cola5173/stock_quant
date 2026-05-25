@@ -40,6 +40,11 @@ class VMasterStrategy(BaseStrategy):
     doubled_lookback = 60
     doubled_ratio = 1.8
 
+    # === 止盈止损参数 ===
+    big_bull_pct = 4.0              # 中大阳阈值（涨幅 %）
+    big_bull_sell_ratio = 0.3       # 中大阳卖出比例（0.3 = 30%）
+    white_break_days = 2            # 跌破白线连续天数
+
     # === 黄白线参数（与 indicators.py 一致） ===
     # 趋势白 = EMA(EMA(C,10),10)
     # 大哥黄 = (MA14 + MA28 + MA57 + MA114) / 4
@@ -48,12 +53,14 @@ class VMasterStrategy(BaseStrategy):
         "divergence_lookback", "divergence_min_gap",
         "vol_surge_lookback", "vol_surge_ratio", "vol_base_window",
         "doubled_lookback", "doubled_ratio",
+        "big_bull_pct", "big_bull_sell_ratio", "white_break_days",
     ]
-    variables = ["buy_price"]
+    variables = ["buy_price", "white_break_count"]
 
     def __init__(self, cta_engine, strategy_name, vt_symbol, setting):
         super().__init__(cta_engine, strategy_name, vt_symbol, setting)
         self.buy_price = 0.0
+        self.white_break_count = 0  # 跌破白线连续天数计数器
         # 与 am.close_array 等长，索引一一对齐
         self._dt_buf: deque = deque(["" for _ in range(self.am.size)],
                                     maxlen=self.am.size)
@@ -78,13 +85,31 @@ class VMasterStrategy(BaseStrategy):
         # ========== 卖出 ==========
         if self.pos > 0:
             if can_sell and not at_lower_limit:
-                yellow = self._calc_yellow(closes, T)
                 white = self._calc_white(closes, T)
-                if yellow > 0 and white > 0:
-                    stop_line = min(yellow, white)
-                    if bar.close_price < stop_line:
-                        reason = f"跌破黄白线(黄{yellow:.2f}/白{white:.2f})"
-                        self.sell_stock(bar.close_price, abs(self.pos), reason=reason)
+
+                # 1. 中大阳分批止盈
+                if T >= 1 and closes[T - 1] > 0:
+                    day_chg = (bar.close_price - float(closes[T - 1])) / float(closes[T - 1]) * 100
+                    is_bull = bar.close_price > bar.open_price
+                    if is_bull and day_chg >= self.big_bull_pct:
+                        sell_vol = int(abs(self.pos) * self.big_bull_sell_ratio)
+                        if sell_vol > 0:
+                            reason = f"中大阳放飞{self.big_bull_sell_ratio*100:.0f}%(涨{day_chg:.1f}%)"
+                            self.sell_stock(bar.close_price, sell_vol, reason=reason)
+                            # 重置跌破计数器（止盈后重新计数）
+                            self.white_break_count = 0
+                            return
+
+                # 2. 连续 N 天跌破白线止损
+                if white > 0:
+                    if bar.close_price < white:
+                        self.white_break_count += 1
+                        if self.white_break_count >= self.white_break_days:
+                            reason = f"连续{self.white_break_days}天跌破白线(白{white:.2f})"
+                            self.sell_stock(bar.close_price, abs(self.pos), reason=reason)
+                    else:
+                        # 重新站上白线，重置计数器
+                        self.white_break_count = 0
             return
 
         # ========== 买入 ==========
@@ -151,8 +176,12 @@ class VMasterStrategy(BaseStrategy):
         is_buy = trade.direction.value == "多"
         if is_buy:
             self.buy_price = trade.price
+            self.white_break_count = 0
         else:
-            self.buy_price = 0.0
+            # 如果是全部清仓，重置状态
+            if self.pos == 0:
+                self.buy_price = 0.0
+                self.white_break_count = 0
 
     # ------------------------------------------------------------------
     # MACD 计算
