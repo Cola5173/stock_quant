@@ -312,8 +312,8 @@ export function EtfPage() {
             <tbody className="divide-y divide-zinc-800">
               {ETF_ORDER.map((k) => {
                 const meta = ETF_META[k];
-                const total = result.total[k];
-                const pct = amount > 0 ? (total / amount) * 100 : 0;
+                const totalWithBullet = result.total[k] + result.bulletRelease[k];
+                const pct = amount > 0 ? (totalWithBullet / (amount + ETF_ORDER.reduce((s, key) => s + result.bulletRelease[key], 0))) * 100 : 0;
                 return (
                   <tr key={k} className="hover:bg-zinc-950/40">
                     <td className="px-3 py-2.5">
@@ -321,7 +321,7 @@ export function EtfPage() {
                       <div className="text-[10px] text-zinc-600">目标 {(meta.ratio * 100).toFixed(0)}%</div>
                     </td>
                     <td className="px-3 py-2.5 text-right text-zinc-400 tabular-nums">{percentiles[k]}%</td>
-                    <td className="px-3 py-2.5 text-right text-zinc-400 tabular-nums">{result.weights[k]}x</td>
+                    <td className="px-3 py-2.5 text-right text-zinc-400 tabular-nums">{result.weights[k].toFixed(3)}x</td>
                     <td className="px-3 py-2.5 text-right text-zinc-500 tabular-nums">{fmtMoney(result.mustAlloc[k])}</td>
                     <td className="px-3 py-2.5 text-right text-zinc-500 tabular-nums">
                       {fmtMoney(result.flexAlloc[k])}
@@ -337,7 +337,7 @@ export function EtfPage() {
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-right font-medium text-zinc-100 tabular-nums">
-                      {fmtMoney(total)}
+                      {fmtMoney(totalWithBullet)}
                       <span className="text-[10px] text-zinc-500 ml-1">({pct.toFixed(1)}%)</span>
                     </td>
                   </tr>
@@ -357,7 +357,11 @@ export function EtfPage() {
                     : "-"}
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums">
-                  {fmtMoney(result.allHigh ? result.must : amount)}
+                  {fmtMoney(
+                    result.must +
+                    ETF_ORDER.reduce((s, k) => s + result.flexAlloc[k], 0) +
+                    ETF_ORDER.reduce((s, k) => s + result.bulletRelease[k], 0)
+                  )}
                 </td>
               </tr>
             </tbody>
